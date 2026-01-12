@@ -1,0 +1,288 @@
+{
+  "name": "open-jj",
+  "displayName": "Open JJ",
+  "description": "Jujutsu (jj) version control integration for VS Code",
+  "version": "0.0.1",
+  "publisher": "open-jj",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "SCM Providers"
+  ],
+  "keywords": [
+    "jj",
+    "jujutsu",
+    "version control",
+    "scm",
+    "git"
+  ],
+  "activationEvents": [
+    "workspaceContains:.jj",
+    "onCommand:open-jj.init",
+    "onCommand:open-jj.initWithGit"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "open-jj.init",
+        "title": "Initialize Repository",
+        "category": "JJ"
+      },
+      {
+        "command": "open-jj.initWithGit",
+        "title": "Initialize Repository with Git Backend",
+        "category": "JJ"
+      },
+      {
+        "command": "open-jj.new",
+        "title": "New Change",
+        "category": "JJ",
+        "icon": "$(add)"
+      },
+      {
+        "command": "open-jj.describe",
+        "title": "Describe Change",
+        "category": "JJ",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "open-jj.squash",
+        "title": "Squash into Parent",
+        "category": "JJ"
+      },
+      {
+        "command": "open-jj.edit",
+        "title": "Edit Change",
+        "category": "JJ"
+      },
+      {
+        "command": "open-jj.abandon",
+        "title": "Abandon Change",
+        "category": "JJ"
+      },
+      {
+        "command": "open-jj.bookmark.manage",
+        "title": "Manage Bookmarks",
+        "category": "JJ",
+        "icon": "$(bookmark)"
+      },
+      {
+        "command": "open-jj.bookmark.create",
+        "title": "Create Bookmark",
+        "category": "JJ"
+      },
+      {
+        "command": "open-jj.bookmark.delete",
+        "title": "Delete Bookmark",
+        "category": "JJ"
+      },
+      {
+        "command": "open-jj.bookmark.set",
+        "title": "Set Bookmark",
+        "category": "JJ"
+      },
+      {
+        "command": "open-jj.refresh",
+        "title": "Refresh",
+        "category": "JJ",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "open-jj.fetch",
+        "title": "Fetch",
+        "category": "JJ",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "open-jj.githubAuth",
+        "title": "GitHub",
+        "category": "JJ",
+        "icon": "$(github)"
+      },
+      {
+        "command": "open-jj.openFile",
+        "title": "Open File",
+        "category": "JJ",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "open-jj.openChange",
+        "title": "Open Change",
+        "category": "JJ"
+      },
+      {
+        "command": "open-jj.revert",
+        "title": "Revert File",
+        "category": "JJ"
+      },
+      {
+        "command": "open-jj.rebase",
+        "title": "Rebase Change",
+        "category": "JJ"
+      },
+      {
+        "command": "open-jj.moveFile",
+        "title": "Move File to Change",
+        "category": "JJ"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "open-jj.refresh",
+          "when": "view == open-jj.log",
+          "group": "navigation"
+        },
+        {
+          "command": "open-jj.new",
+          "when": "view == open-jj.log",
+          "group": "navigation"
+        },
+        {
+          "command": "open-jj.refresh",
+          "when": "view == open-jj.logWebview && open-jj.hasRepository",
+          "group": "navigation"
+        },
+        {
+          "command": "open-jj.fetch",
+          "when": "view == open-jj.logWebview && open-jj.hasRepository",
+          "group": "navigation"
+        },
+        {
+          "command": "open-jj.githubAuth",
+          "when": "view == open-jj.logWebview && open-jj.hasRepository",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "open-jj.edit",
+          "when": "view == open-jj.log && viewItem == change",
+          "group": "inline"
+        },
+        {
+          "command": "open-jj.describe",
+          "when": "view == open-jj.log && viewItem == change"
+        },
+        {
+          "command": "open-jj.squash",
+          "when": "view == open-jj.log && viewItem == change"
+        },
+        {
+          "command": "open-jj.abandon",
+          "when": "view == open-jj.log && viewItem == change"
+        },
+        {
+          "command": "open-jj.bookmark.manage",
+          "when": "view == open-jj.log && viewItem == change",
+          "group": "inline"
+        },
+        {
+          "command": "open-jj.bookmark.manage",
+          "when": "view == open-jj.log && viewItem == change"
+        },
+        {
+          "command": "open-jj.bookmark.delete",
+          "when": "view == open-jj.bookmarks && viewItem == bookmark"
+        },
+        {
+          "command": "open-jj.openFile",
+          "when": "view == open-jj.log && viewItem == file",
+          "group": "inline"
+        },
+        {
+          "command": "open-jj.revert",
+          "when": "view == open-jj.log && viewItem == file"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "open-jj.new",
+          "group": "navigation",
+          "when": "scmProvider == jj"
+        },
+        {
+          "command": "open-jj.refresh",
+          "group": "navigation",
+          "when": "scmProvider == jj"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "open-jj.openFile",
+          "when": "scmProvider == jj",
+          "group": "inline"
+        },
+        {
+          "command": "open-jj.revert",
+          "when": "scmProvider == jj",
+          "group": "inline"
+        }
+      ]
+    },
+    "views": {
+      "scm": [
+        {
+          "type": "webview",
+          "id": "open-jj.logWebview",
+          "name": "JJ Log",
+          "when": "open-jj.hasRepository"
+        },
+        {
+          "id": "open-jj.bookmarks",
+          "name": "JJ Bookmarks",
+          "when": "open-jj.hasRepository"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "open-jj.log",
+        "contents": "No JJ repository found.\n[Initialize Repository](command:open-jj.init)\n[Initialize with Git Backend](command:open-jj.initWithGit)"
+      }
+    ],
+    "configuration": {
+      "title": "Open JJ",
+      "properties": {
+        "open-jj.path": {
+          "type": "string",
+          "default": "jj",
+          "description": "Path to the jj executable"
+        },
+        "open-jj.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh views when files change"
+        },
+        "open-jj.logLimit": {
+          "type": "number",
+          "default": 50,
+          "description": "Maximum number of changes to show in the log view"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "test:unit": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "@vscode/codicons": "^0.0.44"
+  }
+}
