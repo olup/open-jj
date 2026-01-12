@@ -569,49 +569,66 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       event.dataTransfer.effectAllowed = 'move';
     }
 
-    function allowDrop(event) {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = 'move';
-    }
-
-    function dragEnter(event) {
-      event.preventDefault();
-      event.currentTarget.classList.add('drag-over');
-    }
-
-    function dragLeave(event) {
-      event.currentTarget.classList.remove('drag-over');
-    }
-
-    function dropOnChange(event, targetChangeId) {
-      event.preventDefault();
-      event.stopPropagation();
-      event.currentTarget.classList.remove('drag-over');
-
-      if (!dragData) {
-        return;
+    // Use document-level event delegation for drag/drop to handle events on child elements
+    document.addEventListener('dragover', function(event) {
+      const header = event.target.closest('.change-header');
+      if (header) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
       }
+    });
 
-      const data = dragData;
-      dragData = null;
+    document.addEventListener('dragenter', function(event) {
+      const header = event.target.closest('.change-header');
+      if (header) {
+        event.preventDefault();
+        header.classList.add('drag-over');
+      }
+    });
 
-      if (data.type === 'change') {
-        if (data.changeId !== targetChangeId) {
-          send('rebaseChange', { sourceChangeId: data.changeId, targetChangeId: targetChangeId });
-        }
-      } else if (data.type === 'bookmark') {
-        // Always send - let the backend handle validation
-        vscode.postMessage({
-          command: 'moveBookmark',
-          bookmarkName: data.bookmarkName,
-          targetChangeId: targetChangeId
-        });
-      } else if (data.type === 'file') {
-        if (data.fromChangeId !== targetChangeId) {
-          send('moveFile', { filePath: data.filePath, fromChangeId: data.fromChangeId, targetChangeId: targetChangeId });
+    document.addEventListener('dragleave', function(event) {
+      const header = event.target.closest('.change-header');
+      if (header) {
+        const relatedTarget = event.relatedTarget;
+        // Only remove drag-over if we're actually leaving the header, not entering a child
+        if (!relatedTarget || !header.contains(relatedTarget)) {
+          header.classList.remove('drag-over');
         }
       }
-    }
+    });
+
+    document.addEventListener('drop', function(event) {
+      const header = event.target.closest('.change-header');
+      if (header) {
+        event.preventDefault();
+        event.stopPropagation();
+        header.classList.remove('drag-over');
+
+        const targetChangeId = header.dataset.changeId;
+        if (!dragData || !targetChangeId) {
+          return;
+        }
+
+        const data = dragData;
+        dragData = null;
+
+        if (data.type === 'change') {
+          if (data.changeId !== targetChangeId) {
+            send('rebaseChange', { sourceChangeId: data.changeId, targetChangeId: targetChangeId });
+          }
+        } else if (data.type === 'bookmark') {
+          vscode.postMessage({
+            command: 'moveBookmark',
+            bookmarkName: data.bookmarkName,
+            targetChangeId: targetChangeId
+          });
+        } else if (data.type === 'file') {
+          if (data.fromChangeId !== targetChangeId) {
+            send('moveFile', { filePath: data.filePath, fromChangeId: data.fromChangeId, targetChangeId: targetChangeId });
+          }
+        }
+      }
+    });
   </script>
 </body>
 </html>`;
@@ -645,7 +662,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
     return `
       <div class="change ${isWorkingCopy ? 'working-copy' : ''} ${change.hasConflict ? 'conflict' : ''}">
-        <div class="change-header" onclick="toggleChange('${change.changeId}')" oncontextmenu="showContextMenu(event, '${change.changeId}', ${isWorkingCopy})" ondragover="allowDrop(event)" ondrop="dropOnChange(event, '${change.changeId}')" ondragenter="dragEnter(event)" ondragleave="dragLeave(event)">
+        <div class="change-header" data-change-id="${change.changeId}" onclick="toggleChange('${change.changeId}')" oncontextmenu="showContextMenu(event, '${change.changeId}', ${isWorkingCopy})">
           <span class="graph-node" draggable="true" ondragstart="dragChange(event, '${change.changeId}')" title="Drag to rebase">
             ${graphMarkup}
           </span>
