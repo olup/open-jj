@@ -368,7 +368,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
     // Get codicon font URI
     const codiconsUri = this._view?.webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, 'node_modules', '@vscode/codicons', 'dist', 'codicon.css')
+      vscode.Uri.joinPath(this._extensionUri, 'resources', 'codicons', 'codicon.css')
     );
 
     return `<!DOCTYPE html>
