@@ -128,12 +128,19 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
       if (!repository) {
         return;
       }
+      const trunkFallback = (repo: Repository) => {
+        const candidates = ['main', 'master', 'trunk'];
+        const local = repo.bookmarks.filter((b) => !b.isRemote).map((b) => b.name);
+        return candidates.find((candidate) => local.includes(candidate)) ?? 'trunk';
+      };
+      const trunkName = trunkFallback(repository);
       const options = [
-        { label: 'All', value: '::' },
-        { label: 'This week', value: 'committer_date(after:"1 week ago")' },
-        { label: 'This month', value: 'committer_date(after:"1 month ago")' },
-        { label: 'Mine', value: 'mine()' },
-        { label: 'Recent 200', value: '@ | ancestors(@, 200)' },
+        { label: 'All (trunk)', value: `present(::${trunkName})` },
+        { label: 'Trunk line', value: `present(::${trunkName}) & ::present(${trunkName})` },
+        { label: 'Remote bookmarks', value: 'present(::remote_bookmarks())' },
+        { label: 'Root', value: 'root()' },
+        { label: 'Own', value: 'mine()' },
+        { label: 'Recent (week)', value: 'committer_date(after:"1 week ago")' },
       ];
       const current = vscode.workspace.getConfiguration('open-jj').get('logRevset', '');
       const pick = await vscode.window.showQuickPick(

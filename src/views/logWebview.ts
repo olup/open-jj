@@ -727,17 +727,18 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
     let svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
 
-    for (let col = 0; col < maxColumns; col++) {
-      const x = col * colWidth;
-      const size = colWidth;
-      const y = (height - size) / 2;
-      svg += `<rect x="${x}" y="${y}" width="${size}" height="${size}" fill="none" stroke="${lineColor}" stroke-width="0.5" stroke-opacity="0.25"/>`;
-    }
-
     const preNodeLine = graphInfo?.preNodeLine ?? [];
     const postNodeLine = graphInfo?.postNodeLine ?? [];
     const parentColumns = graphInfo?.parentColumns ?? [];
     const dashedParentColumns = new Set(graphInfo?.dashedParentColumns ?? []);
+    const dashedRanges = Array.from(dashedParentColumns).map((parentCol) => {
+      const min = Math.min(nodeColumn, parentCol);
+      const max = Math.max(nodeColumn, parentCol);
+      return { min, max };
+    });
+
+    const isDashedColumn = (col: number) =>
+      dashedRanges.some((range) => col > range.min && col < range.max);
 
     for (let col = 0; col < maxColumns; col++) {
       const x = col * colWidth + colWidth / 2;
@@ -759,13 +760,14 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       }
       const parentX = parentCol * colWidth + colWidth / 2;
       const dashed = dashedParentColumns.has(parentCol) ? ' stroke-dasharray="3 3"' : '';
-      svg += `<line x1="${nodeX}" y1="${cy}" x2="${parentX}" y2="${linkY}" stroke="${lineColor}" stroke-width="1"${dashed}/>`;
+      const midY = (cy + linkY) / 2;
+      svg += `<path d="M ${nodeX} ${cy} C ${nodeX} ${midY} ${parentX} ${midY} ${parentX} ${linkY}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
     }
 
     // Draw node shape on top of lines
     if (change.isImmutable) {
-      const d = Math.max(2, nodeSize - 1);
-      svg += `<rect x="${nodeX - d}" y="${cy - d}" width="${d * 2}" height="${d * 2}" rx="1" ry="1" fill="${nodeFill}" stroke="${nodeStroke}" stroke-width="1.5"/>`;
+      const d = Math.max(3, nodeSize);
+      svg += `<polygon points="${nodeX},${cy - d} ${nodeX + d},${cy} ${nodeX},${cy + d} ${nodeX - d},${cy}" fill="${nodeFill}" stroke="${nodeStroke}" stroke-width="1.5"/>`;
     } else {
       svg += `<circle cx="${nodeX}" cy="${cy}" r="${nodeSize}" fill="${nodeFill}" stroke="${nodeStroke}" stroke-width="1.5"/>`;
     }
@@ -994,7 +996,8 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     }, nodeColumn);
     const widthColumns = Math.max(lastActiveCol, nodeColumn) + 1;
     const width = Math.max(widthColumns * colWidth + colWidth, 16);
-    const hasBottomLine = graphInfo.hasBottomLine ?? graphInfo.hasParents ?? true;
+    const hasStraightParent = graphInfo.parentColumns?.includes(nodeColumn) ?? false;
+    const hasBottomLine = hasStraightParent && (graphInfo.hasBottomLine ?? graphInfo.hasParents ?? true);
     const lineColor = 'var(--vscode-descriptionForeground)';
 
     let svg = `<svg class="graph-file-svg" width="${width}" height="100%" viewBox="0 0 ${width} 1" preserveAspectRatio="none">`;

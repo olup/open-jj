@@ -2,7 +2,7 @@
   "name": "open-jj",
   "displayName": "Open JJ",
   "description": "Jujutsu (jj) version control integration for VS Code",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "olup",
   "license": "MIT",
   "engines": {
@@ -280,8 +280,8 @@
         },
         "open-jj.logRevset": {
           "type": "string",
-          "default": "committer_date(after:\"1 week ago\")",
-          "description": "Revset to show in the log view (e.g. mine(), committer_date(after:\"1 week ago\"), @ | ancestors(@, 200))"
+          "default": "present(::trunk())",
+          "description": "Revset to show in the log view (e.g. present(::trunk()), present(::remote_bookmarks()), root())"
         }
       }
     }
