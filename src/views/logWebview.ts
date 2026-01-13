@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { Repository } from '../repository/repository';
 import { Change, Bookmark, FileChange, PullRequestInfo, PullRequestState, LogRow } from '../jj/types';
-import { GraphInfo, computeGraph, computeGraphFromRows } from './graphLayout';
+import { GraphInfo, computeDistantParents, computeGraph } from './graphLayout';
+import { PadLine } from './renderDag';
 
 interface ChangeFilesEntry {
   files: FileChange[];
@@ -149,14 +150,14 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
     const pending: Promise<void>[] = [];
     for (const changeId of changeIds) {
-      const change = this._findChange(changeId);
+      const change = this._findChangeByCommitId(changeId);
       if (!change || change.isWorkingCopy) {
         continue;
       }
 
       pending.push(
         this._changeFiles
-          .ensure(changeId, () => this._repository!.getFilesForRevision(change.changeIdShort), forceFetch)
+          .ensure(changeId, () => this._repository!.getFilesForRevision(change.commitIdShort, change.hasConflict), forceFetch)
           .then(() => undefined)
       );
     }
@@ -172,16 +173,16 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     try {
     switch (message.command) {
       case 'toggleChange':
-        const changeId = message.changeId as string;
-        if (this._expandedChanges.has(changeId)) {
-          this._expandedChanges.delete(changeId);
+        const commitId = message.commitId as string;
+        if (this._expandedChanges.has(commitId)) {
+          this._expandedChanges.delete(commitId);
         } else {
-          this._expandedChanges.add(changeId);
+          this._expandedChanges.add(commitId);
           // Load files for this change if not working copy
-          const change = this._findChange(changeId);
+          const change = this._findChangeByCommitId(commitId);
           if (change && !change.isWorkingCopy) {
             this._changeFiles
-              .ensure(changeId, () => this._repository!.getFilesForRevision(change.changeIdShort), false)
+              .ensure(commitId, () => this._repository!.getFilesForRevision(change.commitIdShort, change.hasConflict), false)
               .then(() => this._render());
           }
         }
@@ -238,6 +239,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         await this._repository.refresh({ refreshPrInfo: true });
         break;
 
+
       case 'rebaseChange':
         const sourceId = message.sourceChangeId as string;
         const targetId = message.targetChangeId as string;
@@ -258,8 +260,13 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         const fromChange = message.fromChangeId as string;
         const toChange = message.targetChangeId as string;
         vscode.commands.executeCommand('open-jj.moveFile', { filePath: moveFilePath, fromChangeId: fromChange, toChangeId: toChange });
-        this._changeFiles.invalidate([fromChange, toChange]);
-        this._prefetchChanges([fromChange, toChange], true);
+        const fromCommitIds = this._findCommitsByChangeId(fromChange).map((c) => c.commitId);
+        const toCommitIds = this._findCommitsByChangeId(toChange).map((c) => c.commitId);
+        const commitIds = Array.from(new Set([...fromCommitIds, ...toCommitIds]));
+        if (commitIds.length > 0) {
+          this._changeFiles.invalidate(commitIds);
+          this._prefetchChanges(commitIds, true);
+        }
         break;
 
       case 'pushBookmark':
@@ -343,6 +350,14 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     return this._repository?.log.find(c => c.changeId === changeId || c.changeIdShort === changeId);
   }
 
+  private _findChangeByCommitId(commitId: string): Change | undefined {
+    return this._repository?.log.find(c => c.commitId === commitId || c.commitIdShort === commitId);
+  }
+
+  private _findCommitsByChangeId(changeId: string): Change[] {
+    return this._repository?.log.filter(c => c.changeId === changeId || c.changeIdShort === changeId) ?? [];
+  }
+
   private _convertToGitHubPrUrl(remoteUrl: string, branchName: string): string | null {
     // Convert git remote URL to GitHub PR creation URL
     // Handles: git@github.com:owner/repo.git, https://github.com/owner/repo.git
@@ -357,14 +372,15 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
   private _getHtmlContent(): string {
     const changes = this._repository?.log ?? [];
+    const fullChanges = this._repository?.fullLog ?? changes;
     const logRows = this._repository?.logRows ?? changes.map((change) => ({
       graphPrefix: '',
       change,
     }));
+    const renderRows = logRows.filter((row) => row.change);
     const workingCopyFiles = this._repository?.changedFiles ?? [];
-    const graphInfo = logRows.some((row) => row.graphPrefix)
-      ? computeGraphFromRows(logRows)
-      : computeGraph(changes);
+    const { parentOverrides, dashedParents } = computeDistantParents(changes, fullChanges);
+    const graphInfo = computeGraph(changes, { parentOverrides, dashedParents });
 
     // Get codicon font URI
     const codiconsUri = this._view?.webview.asWebviewUri(
@@ -385,28 +401,32 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
   <div class="log">
     ${changes.length === 0 ? '<div class="empty">No changes found</div>' : ''}
     ${(() => {
-      return logRows.map((row, index) => {
+      return renderRows.map((row, index) => {
         if (row.change) {
           return this._renderChange(
             row.change,
             workingCopyFiles,
             this._changeFiles,
             index,
-            logRows.length,
-            graphInfo.get(row.change.changeId)
+            renderRows.length,
+            graphInfo.get(row.change.commitId)
           );
         }
         return this._renderGraphRow(row);
       }).join('');
     })()}
   </div>
+  ${changes.length === 0 ? '' : `<details class="graph-text-panel">
+    <summary>Text graph</summary>
+    <pre class="graph-text">${this._escapeHtml(this._renderTextGraph(renderRows, graphInfo))}</pre>
+  </details>`}
   <script>
     const vscode = acquireVsCodeApi();
     function send(command, data = {}) {
       vscode.postMessage({ command, ...data });
     }
-    function toggleChange(changeId) {
-      send('toggleChange', { changeId });
+    function toggleChange(commitId) {
+      send('toggleChange', { commitId });
     }
     function editChange(changeId, event) {
       if (event) event.stopPropagation();
@@ -465,6 +485,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       if (event) event.stopPropagation();
       send('openUrl', { url });
     }
+
 
     let currentContextMenu = null;
     function showContextMenu(event, changeId, isWorkingCopy) {
@@ -642,9 +663,9 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     total: number,
     graphInfo?: GraphInfo
   ): string {
-    const isExpanded = this._expandedChanges.has(change.changeId);
+    const isExpanded = this._expandedChanges.has(change.commitId);
     const isWorkingCopy = change.isWorkingCopy;
-    const files = isWorkingCopy ? workingCopyFiles : (changeFiles.get(change.changeId) ?? []);
+    const files = isWorkingCopy ? workingCopyFiles : (changeFiles.get(change.commitId) ?? []);
     const hasFiles = files.length > 0 || !change.isEmpty;
 
     // Get bookmarks with their types
@@ -661,9 +682,9 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
          <button class="describe-btn" onclick="describeChange('${change.changeId}', event)" title="Describe change">Describe</button>`;
 
     return `
-      <div class="change ${isWorkingCopy ? 'working-copy' : ''} ${change.hasConflict ? 'conflict' : ''}">
-        <div class="change-header" data-change-id="${change.changeId}" onclick="toggleChange('${change.changeId}')" oncontextmenu="showContextMenu(event, '${change.changeId}', ${isWorkingCopy})">
-          <span class="graph-node" draggable="true" ondragstart="dragChange(event, '${change.changeId}')" title="Drag to rebase">
+      <div class="change ${isWorkingCopy ? 'working-copy' : ''} ${change.hasConflict ? 'conflict' : ''}" data-change-id="${change.changeId}" data-commit-id="${change.commitId}" data-parent-ids='${JSON.stringify(change.parentIds)}'>
+        <div class="change-header" data-change-id="${change.changeId}" data-commit-id="${change.commitId}" onclick="toggleChange('${change.commitId}')" oncontextmenu="showContextMenu(event, '${change.changeId}', ${isWorkingCopy})">
+          <span class="graph-node" draggable="true" ondragstart="dragChange(event, '${change.changeId}')" onclick="event.stopPropagation()" ondblclick="editChange('${change.changeId}', event)" title="Double-click to edit change">
             ${graphMarkup}
           </span>
           <span class="expand-icon codicon ${hasFiles ? '' : 'hidden'} ${isExpanded ? 'codicon-chevron-down' : 'codicon-chevron-right'}"></span>
@@ -673,14 +694,9 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
             <button class="icon-button small" onclick="newChangeFrom('${change.changeId}', event)" title="New change from here">
               <span class="codicon codicon-add"></span>
             </button>
-            ${!isWorkingCopy ? `
-              <button class="icon-button small" onclick="editChange('${change.changeId}', event)" title="Edit this change">
-                <span class="codicon codicon-edit"></span>
-              </button>
-            ` : ''}
           </span>
         </div>
-        ${isExpanded && files.length > 0 ? this._renderFiles(files, isWorkingCopy ? undefined : change.changeIdShort, change.changeId, graphInfo) : ''}
+        ${isExpanded && files.length > 0 ? this._renderFiles(files, isWorkingCopy ? undefined : change.commitIdShort, change.changeId, graphInfo) : ''}
       </div>
     `;
   }
@@ -690,23 +706,12 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     const height = 28;
     const nodeSize = 4;
     const cy = height / 2;
+    const linkY = height;
 
     // Use graph info if available
     const nodeColumn = graphInfo?.nodeColumn ?? 0;
     const maxColumns = graphInfo?.maxColumns ?? 1;
-    const activeColumns = graphInfo?.activeColumns ?? [true];
-    const isTip = graphInfo?.isTip ?? isFirst;
-    const hasParents = graphInfo?.hasParents ?? !isLast;
-    const hasTopLine = graphInfo?.hasTopLine ?? !isTip;
-    const hasBottomLine = graphInfo?.hasBottomLine ?? hasParents;
-    const mergingFrom = graphInfo?.mergingFrom ?? [];
-    const branchingTo = graphInfo?.branchingTo ?? [];
-
-    const lastActiveCol = activeColumns.reduce((last, isActive, index) => {
-      return isActive ? index : last;
-    }, nodeColumn);
-    const widthColumns = Math.max(lastActiveCol, nodeColumn) + 1;
-    const width = Math.max(widthColumns * colWidth + colWidth, 16);
+    const width = Math.max(maxColumns * colWidth + colWidth, 16);
     const nodeX = nodeColumn * colWidth + colWidth / 2;
 
     // Determine colors
@@ -722,41 +727,39 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
     let svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
 
-    // Draw vertical lines for all active columns (pass-through lines, not the node column)
-    for (let col = 0; col < activeColumns.length; col++) {
-      if (activeColumns[col] && col !== nodeColumn) {
-        const x = col * colWidth + colWidth / 2;
-        // Check if this column is merging into us - if so, only draw to midpoint
-        if (mergingFrom.includes(col)) {
-          svg += `<line x1="${x}" y1="0" x2="${x}" y2="${cy}" stroke="${lineColor}" stroke-width="1"/>`;
-        } else {
-          svg += `<line x1="${x}" y1="0" x2="${x}" y2="${height}" stroke="${lineColor}" stroke-width="1"/>`;
-        }
+    for (let col = 0; col < maxColumns; col++) {
+      const x = col * colWidth;
+      const size = colWidth;
+      const y = (height - size) / 2;
+      svg += `<rect x="${x}" y="${y}" width="${size}" height="${size}" fill="none" stroke="${lineColor}" stroke-width="0.5" stroke-opacity="0.25"/>`;
+    }
+
+    const preNodeLine = graphInfo?.preNodeLine ?? [];
+    const postNodeLine = graphInfo?.postNodeLine ?? [];
+    const parentColumns = graphInfo?.parentColumns ?? [];
+    const dashedParentColumns = new Set(graphInfo?.dashedParentColumns ?? []);
+
+    for (let col = 0; col < maxColumns; col++) {
+      const x = col * colWidth + colWidth / 2;
+      if (preNodeLine[col] !== undefined && preNodeLine[col] !== PadLine.Blank) {
+        svg += `<line x1="${x}" y1="0" x2="${x}" y2="${cy}" stroke="${lineColor}" stroke-width="1"/>`;
+      }
+      const hasStraightParent = graphInfo?.parentColumns?.includes(nodeColumn) ?? false;
+      if (col === nodeColumn && !hasStraightParent) {
+        continue;
+      }
+      if (postNodeLine[col] !== undefined && postNodeLine[col] !== PadLine.Blank) {
+        svg += `<line x1="${x}" y1="${cy}" x2="${x}" y2="${height}" stroke="${lineColor}" stroke-width="1"/>`;
       }
     }
 
-    // Draw the node's vertical line
-    if (hasTopLine) {
-      // Line from top to node center
-      svg += `<line x1="${nodeX}" y1="0" x2="${nodeX}" y2="${cy}" stroke="${lineColor}" stroke-width="1"/>`;
-    }
-    if (hasBottomLine) {
-      // Line from node center to bottom
-      svg += `<line x1="${nodeX}" y1="${cy}" x2="${nodeX}" y2="${height}" stroke="${lineColor}" stroke-width="1"/>`;
-    }
-
-    // Draw merge lines (curved from other columns to this node)
-    for (const fromCol of mergingFrom) {
-      const fromX = fromCol * colWidth + colWidth / 2;
-      const curveY = cy - 16;
-      svg += `<path d="M ${fromX} ${cy} C ${fromX} ${curveY}, ${nodeX} ${curveY}, ${nodeX} ${cy}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round"/>`;
-    }
-
-    // Draw branch lines (curved from this node down to new columns for additional parents)
-    for (const toCol of branchingTo) {
-      const toX = toCol * colWidth + colWidth / 2;
-      const curveY = cy + 16;
-      svg += `<path d="M ${nodeX} ${cy} C ${nodeX} ${curveY}, ${toX} ${height - 16}, ${toX} ${height}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round"/>`;
+    for (const parentCol of parentColumns) {
+      if (parentCol === nodeColumn) {
+        continue;
+      }
+      const parentX = parentCol * colWidth + colWidth / 2;
+      const dashed = dashedParentColumns.has(parentCol) ? ' stroke-dasharray="3 3"' : '';
+      svg += `<line x1="${nodeX}" y1="${cy}" x2="${parentX}" y2="${linkY}" stroke="${lineColor}" stroke-width="1"${dashed}/>`;
     }
 
     // Draw node shape on top of lines
@@ -770,6 +773,79 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     svg += '</svg>';
     return svg;
   }
+
+  private _renderTextGraph(rows: LogRow[], graph: Map<string, GraphInfo>): string {
+    if (rows.length === 0) {
+      return '';
+    }
+
+    const maxColumns = Math.max(
+      ...rows.map((row) => row.change ? (graph.get(row.change.commitId)?.maxColumns ?? 1) : 1)
+    );
+    const cellWidth = 2;
+    const lines: string[] = [];
+
+    for (const row of rows) {
+      if (row.change) {
+        const change = row.change;
+        const info = graph.get(change.commitId);
+        if (!info) {
+          continue;
+        }
+
+        const width = Math.max(maxColumns * cellWidth - 1, 1);
+        const chars = new Array(width).fill(' ');
+        const nodePos = info.nodeColumn * cellWidth;
+
+        for (let col = 0; col < info.activeColumns.length; col++) {
+          if (!info.activeColumns[col]) continue;
+          const pos = col * cellWidth;
+          if (pos >= 0 && pos < chars.length) {
+            chars[pos] = '|';
+          }
+        }
+
+        for (const toCol of info.branchingTo) {
+          const start = Math.min(info.nodeColumn, toCol) * cellWidth;
+          const end = Math.max(info.nodeColumn, toCol) * cellWidth;
+          for (let i = start + 1; i < end && i < chars.length; i++) {
+            chars[i] = '-';
+          }
+        }
+
+        const nodeChar = change.isWorkingCopy ? '@' : change.isImmutable ? '#' : 'o';
+        if (nodePos >= 0 && nodePos < chars.length) {
+          chars[nodePos] = nodeChar;
+        }
+
+        const label = change.description && change.description !== '(no description)'
+          ? change.description
+          : 'Describe';
+        lines.push(`${chars.join('')} ${label}`);
+        continue;
+      }
+
+      const prefix = row.graphPrefix ?? '';
+      if (!prefix.trim()) {
+        continue;
+      }
+      const chars = new Array(Math.max(maxColumns * cellWidth - 1, 1)).fill(' ');
+      const prefixChars = Array.from(prefix);
+      for (let col = 0; col < prefixChars.length; col += cellWidth) {
+        const ch = prefixChars[col] ?? ' ';
+        if (ch !== ' ') {
+          const pos = col;
+          if (pos >= 0 && pos < chars.length) {
+            chars[pos] = ch === '-' ? '-' : '|';
+          }
+        }
+      }
+      lines.push(`${chars.join('')} ${row.label ?? ''}`.trimEnd());
+    }
+
+    return lines.join('\n');
+  }
+
 
   private _renderGraphRow(row: LogRow): string {
     const label = row.isElided ? '' : (row.label ? this._escapeHtml(row.label) : '');
@@ -852,24 +928,32 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         tooltip = 'Pushed to remote (no PR)';
       }
 
-      if (isConflicted || bookmarkInfo?.isConflicted) {
-        badgeClass += ' conflicted';
+      const isDiverged = isConflicted || bookmarkInfo?.isConflicted;
+      if (isDiverged) {
         tooltip += ' - DIVERGED from remote';
       }
 
       const safeName = cleanName.replace(/'/g, "\\'").replace(/"/g, '\\"');
-      const displayName = (isConflicted || bookmarkInfo?.isConflicted) ? cleanName + '*' : cleanName;
+      const displayName = cleanName;
+      const conflictIcon = isDiverged
+        ? '<span class="codicon codicon-cloud badge-cloud-icon diverged" title="Diverged"></span>'
+        : '';
+      const syncedIcon = isTracked
+        ? '<span class="codicon codicon-cloud badge-cloud-icon" title="Synced"></span>'
+        : '';
+      const prIcon = pr ? '<span class="codicon codicon-git-merge badge-pr-icon" title="Pull request"></span>' : '';
       const prUrl = pr?.url ? pr.url.replace(/'/g, "\\'") : '';
       const onclickHandler = prUrl ? `onclick="openPrUrl('${prUrl}', event)"` : '';
       const clickableClass = prUrl ? ' clickable' : '';
-      badges.push(`<span class="${badgeClass}${clickableClass}" draggable="true" ondragstart="dragBookmark(event, '${safeName}', '${changeId}')" oncontextmenu="showBookmarkMenu(event, '${safeName}', '${changeId}', ${isTracked})" ${onclickHandler} title="${tooltip}">${this._escapeHtml(displayName)}</span>`);
+      badges.push(`<span class="${badgeClass}${clickableClass}" draggable="true" ondragstart="dragBookmark(event, '${safeName}', '${changeId}')" oncontextmenu="showBookmarkMenu(event, '${safeName}', '${changeId}', ${isTracked})" ${onclickHandler} title="${tooltip}">${this._escapeHtml(displayName)}${prIcon}${syncedIcon}${conflictIcon}</span>`);
     }
 
     // Show remote-only bookmarks (not draggable - can't move remote-only)
     for (const name of remote) {
       const localName = name.split('@')[0];
       if (!local.includes(localName) && !local.includes(localName + '*')) {
-        badges.push(`<span class="badge remote" title="Remote only">${this._escapeHtml(name)}</span>`);
+        const cloudIcon = '<span class="codicon codicon-cloud badge-cloud-icon" title="Remote"></span>';
+        badges.push(`<span class="badge remote" title="Remote only">${this._escapeHtml(name)}${cloudIcon}</span>`);
       }
     }
 
@@ -887,7 +971,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         <div class="files-list"${listStyle}>
           ${files.map(file => `
             <div class="file" draggable="true" ondragstart="dragFile(event, '${this._escapeHtml(file.path)}', '${changeId || ''}')" title="Drag to move to another change">
-              <span class="file-icon ${file.status}">${this._getFileIcon(file.status)}</span>
+              <span class="file-icon ${file.status}"><span class="codicon ${this._getFileIcon(file.status)}"></span></span>
               <span class="file-path" onclick="openDiff('${this._escapeHtml(file.path)}', ${revision ? `'${revision}'` : 'undefined'}, event)">
                 ${this._escapeHtml(file.path)}
               </span>
@@ -926,12 +1010,13 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
   private _getFileIcon(status: string): string {
     switch (status) {
-      case 'added': return '+';
-      case 'modified': return '~';
-      case 'deleted': return '-';
-      case 'renamed': return '→';
-      case 'conflict': return '!';
-      default: return '?';
+      case 'added': return 'codicon-diff-added';
+      case 'modified': return 'codicon-diff-modified';
+      case 'deleted': return 'codicon-diff-removed';
+      case 'renamed': return 'codicon-diff-renamed';
+      case 'copied': return 'codicon-copy';
+      case 'conflict': return 'codicon-warning';
+      default: return 'codicon-diff-modified';
     }
   }
 
@@ -1019,6 +1104,8 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
       .log {
         padding: 4px 0 4px 6px;
+        position: relative;
+        z-index: 2;
       }
 
       .empty {
@@ -1104,6 +1191,24 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       .graph-row-label {
         font-size: 12px;
         color: var(--vscode-descriptionForeground);
+      }
+
+      .graph-text-panel {
+        margin: 6px 8px 12px;
+      }
+
+      .graph-text-panel summary {
+        cursor: pointer;
+        color: var(--vscode-textLink-foreground);
+        font-size: 12px;
+      }
+
+      .graph-text {
+        font-family: var(--vscode-editor-font-family);
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        margin-top: 6px;
+        white-space: pre;
       }
 
       .graph-elided-svg {
@@ -1226,8 +1331,10 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
       /* PR Closed: red - PR was closed without merge */
       .badge.pr-closed {
-        background: #cf222e;
-        color: white;
+        background: var(--vscode-editor-background);
+        color: var(--vscode-descriptionForeground);
+        border: 1px solid var(--vscode-editorWidget-border);
+        opacity: 0.65;
       }
 
       /* Merged: green - PR was merged */
@@ -1246,6 +1353,41 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       /* Conflicted: add warning border */
       .badge.conflicted {
         border: 2px solid #d29922;
+      }
+
+      .badge-cloud-icon {
+        margin-left: 4px;
+        font-size: 10px;
+        vertical-align: -1px;
+        position: relative;
+        display: inline-block;
+      }
+
+      .badge-cloud-icon.codicon {
+        font-size: 10px;
+      }
+
+      .badge-cloud-icon.diverged::after {
+        content: '';
+        position: absolute;
+        left: -1px;
+        top: 5px;
+        width: 12px;
+        height: 1px;
+        background: currentColor;
+        transform: rotate(-35deg);
+        opacity: 0.9;
+      }
+
+      .badge-pr-icon {
+        margin-left: 4px;
+        font-size: 10px;
+        vertical-align: -1px;
+        opacity: 0.9;
+      }
+
+      .badge-pr-icon.codicon {
+        font-size: 10px;
       }
 
       /* Clickable badges (have PR URL) */
@@ -1278,10 +1420,12 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       }
 
       .file-icon {
-        font-family: var(--vscode-editor-font-family);
-        font-size: 12px;
-        width: 14px;
+        width: 16px;
         text-align: center;
+      }
+
+      .file-icon .codicon {
+        font-size: 14px;
       }
 
       .files-gutter {

@@ -40,8 +40,8 @@ describe('computeGraphFromRows', () => {
 
     const graph = computeGraphFromRows(rows);
 
-    expect(graph.get('c1')?.nodeColumn).toBe(0);
-    expect(graph.get('c2')?.nodeColumn).toBe(1);
-    expect(graph.get('c3')?.nodeColumn).toBe(1);
+    expect(graph.get('k1')?.nodeColumn).toBe(0);
+    expect(graph.get('k2')?.nodeColumn).toBe(1);
+    expect(graph.get('k3')?.nodeColumn).toBe(1);
   });
 });

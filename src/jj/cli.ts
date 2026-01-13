@@ -144,14 +144,14 @@ export class JJCli {
   /**
    * Get the log of changes
    */
-  async log(limit?: number): Promise<{ changes: Change[]; rows: LogRow[] }> {
+  async log(revset: string, limit?: number): Promise<{ changes: Change[]; rows: LogRow[] }> {
     // First get the working copy change ID
-    const wcResult = await this.execute(['log', '-r', '@', '--no-graph', '-T', 'change_id']);
+    const wcResult = await this.execute(['log', '--no-pager', '-r', '@', '--no-graph', '-T', 'change_id']);
     const workingCopyId = wcResult.success ? wcResult.stdout.trim() : '';
     console.log('[open-jj] working copy change ID:', workingCopyId);
 
-    const baseArgs = ['log', '-T', LOG_GRAPH_TEMPLATE];
-    const argsWithConfig = ['log', '--config', 'ui.graph.style=ascii', '-T', LOG_GRAPH_TEMPLATE];
+    const baseArgs = ['log', '--no-pager', '-r', revset, '-T', LOG_GRAPH_TEMPLATE];
+    const argsWithConfig = ['log', '--no-pager', '-r', revset, '--config', 'ui.graph.style=ascii', '-T', LOG_GRAPH_TEMPLATE];
     if (limit) {
       baseArgs.push('-n', limit.toString());
       argsWithConfig.push('-n', limit.toString());
@@ -180,7 +180,7 @@ export class JJCli {
   async status(): Promise<WorkingCopyStatus> {
     const [statusResult, logResult] = await Promise.all([
       this.execute(['status']),
-      this.execute(['log', '-r', '@', '--no-graph', '-T', LOG_TEMPLATE]),
+      this.execute(['log', '--no-pager', '-r', '@', '--no-graph', '-T', LOG_TEMPLATE]),
     ]);
 
     const files = this.parseStatusOutput(statusResult.stdout);
@@ -213,12 +213,37 @@ export class JJCli {
   /**
    * Get files changed in a specific revision
    */
-  async showFiles(revision: string): Promise<FileChange[]> {
+  async showFiles(revision: string, includeConflicts = false): Promise<FileChange[]> {
     const result = await this.execute(['diff', '--summary', '-r', revision]);
     if (!result.success) {
       return [];
     }
-    return this.parseStatusOutput(result.stdout);
+    const files = this.parseStatusOutput(result.stdout);
+    if (!includeConflicts) {
+      return files;
+    }
+
+    const typesResult = await this.execute(['diff', '--types', '-r', revision]);
+    if (!typesResult.success) {
+      return files;
+    }
+
+    const conflictPaths = this.parseConflictTypes(typesResult.stdout);
+    if (conflictPaths.length === 0) {
+      return files;
+    }
+
+    const filesByPath = new Map(files.map((file) => [file.path, file]));
+    for (const path of conflictPaths) {
+      const existing = filesByPath.get(path);
+      if (existing) {
+        existing.status = 'conflict';
+      } else {
+        filesByPath.set(path, { path, status: 'conflict' });
+      }
+    }
+
+    return Array.from(filesByPath.values());
   }
 
   /**
@@ -295,7 +320,7 @@ export class JJCli {
    * Rebase a change onto a new parent
    */
   async rebase(revision: string, destination: string): Promise<CommandResult> {
-    return this.execute(['rebase', '-r', revision, '-d', destination]);
+    return this.execute(['rebase', '-s', revision, '-d', destination]);
   }
 
   /**
@@ -444,7 +469,7 @@ export class JJCli {
           fileStatus = 'renamed';
           break;
         case 'C':
-          fileStatus = 'copied';
+          fileStatus = 'conflict';
           break;
         case 'U':
           fileStatus = 'conflict';
@@ -457,6 +482,24 @@ export class JJCli {
     }
 
     return files;
+  }
+
+  private parseConflictTypes(output: string): string[] {
+    const lines = output.trim().split('\n').filter((l) => l.length > 0);
+    const conflictPaths: string[] = [];
+
+    for (const line of lines) {
+      const match = line.match(/^([A-Z-]{2})\s+(.*)$/);
+      if (!match) {
+        continue;
+      }
+      const [, types, path] = match;
+      if (types.includes('C')) {
+        conflictPaths.push(path.trim());
+      }
+    }
+
+    return conflictPaths;
   }
 
   /**

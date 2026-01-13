@@ -1,4 +1,5 @@
 import { Change, LogRow } from '../jj/types';
+import { Ancestor, AncestorType, PadLine, Renderer } from './renderDag';
 
 export interface GraphInfo {
   nodeColumn: number;
@@ -10,108 +11,158 @@ export interface GraphInfo {
   branchingTo: number[];
   hasTopLine?: boolean;
   hasBottomLine?: boolean;
+  preNodeLine?: PadLine[];
+  postNodeLine?: PadLine[];
+  linkLine?: number[];
+  linkLineFromNode?: number[];
+  parentColumns?: number[];
+  dashedParentColumns?: number[];
 }
 
-export function computeGraph(changes: Change[]): Map<string, GraphInfo> {
+export type DistantParentResult = {
+  parentOverrides: Map<string, string[]>;
+  dashedParents: Map<string, Set<string>>;
+};
+
+export function computeDistantParents(
+  changes: Change[],
+  fullChanges: Change[]
+): DistantParentResult {
+  const parentOverrides = new Map<string, string[]>();
+  const dashedParents = new Map<string, Set<string>>();
+
+  const visible = new Set(changes.map((change) => change.commitId));
+  const fullParents = new Map<string, string[]>();
+  for (const change of fullChanges) {
+    fullParents.set(change.commitId, change.parentIds);
+  }
+
+  const nearestCache = new Map<string, string | null>();
+
+  const findNearestVisible = (startId: string): string | null => {
+    if (nearestCache.has(startId)) {
+      return nearestCache.get(startId) ?? null;
+    }
+    const visited = new Set<string>();
+    const queue: string[] = [startId];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (!current || visited.has(current)) {
+        continue;
+      }
+      visited.add(current);
+      if (visible.has(current)) {
+        nearestCache.set(startId, current);
+        return current;
+      }
+      const parents = fullParents.get(current) ?? [];
+      for (const parentId of parents) {
+        if (!visited.has(parentId)) {
+          queue.push(parentId);
+        }
+      }
+    }
+    nearestCache.set(startId, null);
+    return null;
+  };
+
+  for (const change of changes) {
+    const effectiveParents: string[] = [];
+    const dashed = new Set<string>();
+    const seen = new Set<string>();
+
+    for (const parentId of change.parentIds) {
+      if (visible.has(parentId)) {
+        if (!seen.has(parentId)) {
+          effectiveParents.push(parentId);
+          seen.add(parentId);
+        }
+        continue;
+      }
+      const distant = findNearestVisible(parentId);
+      if (distant && !seen.has(distant)) {
+        effectiveParents.push(distant);
+        dashed.add(distant);
+        seen.add(distant);
+      }
+    }
+
+    if (effectiveParents.length > 0) {
+      parentOverrides.set(change.commitId, effectiveParents);
+    }
+    if (dashed.size > 0) {
+      dashedParents.set(change.commitId, dashed);
+    }
+  }
+
+  return { parentOverrides, dashedParents };
+}
+
+export function computeGraph(
+  changes: Change[],
+  options?: { parentOverrides?: Map<string, string[]>; dashedParents?: Map<string, Set<string>> }
+): Map<string, GraphInfo> {
   const graphMap = new Map<string, GraphInfo>();
+  const renderer = new Renderer();
+  let maxColumnsEver = 1;
 
-  const columns: (string | null)[] = [];
-  let maxColumnsEver = 0;
-
-  const findEmpty = () => columns.indexOf(null);
-  const findCommit = (commitId: string) => columns.indexOf(commitId);
+  const addUnique = (list: number[], value: number) => {
+    if (!list.includes(value)) {
+      list.push(value);
+    }
+  };
 
   for (let i = 0; i < changes.length; i++) {
     const change = changes[i];
-    const parentIds = change.parentIds;
-    const commitId = change.commitId;
+    const effectiveParents = options?.parentOverrides?.get(change.commitId) ?? change.parentIds;
+    const parents = effectiveParents.map(
+      (id) => new Ancestor({ type: AncestorType.Parent, hash: id })
+    );
+    const row = renderer.nextRow(change.commitId, parents);
 
-    let nodeCol = findCommit(commitId);
-    const isTip = nodeCol === -1;
-
-    if (nodeCol === -1) {
-      nodeCol = findEmpty();
-      if (nodeCol === -1) {
-        nodeCol = columns.length;
-        columns.push(null);
-      }
-    }
-
-    const mergingFrom: number[] = [];
-    for (let col = 0; col < columns.length; col++) {
-      if (col !== nodeCol && columns[col] === commitId) {
-        mergingFrom.push(col);
-      }
-    }
-
-    const activeColumns = columns.map((c, idx) => c !== null || idx === nodeCol);
-
-    columns[nodeCol] = null;
-    for (const col of mergingFrom) {
-      columns[col] = null;
-    }
+    const activeColumns = row.preNodeLine.map((line, idx) => {
+      const node = row.nodeLine[idx] ?? 0;
+      const ancestry = row.ancestryLine[idx] ?? 0;
+      return line !== PadLine.Blank || node !== 0 || ancestry !== PadLine.Blank;
+    });
 
     const branchingTo: number[] = [];
-
-    if (parentIds.length > 0) {
-      const firstParent = parentIds[0];
-      const existingFirstParentCol = findCommit(firstParent);
-
-      if (existingFirstParentCol !== -1) {
-        branchingTo.push(existingFirstParentCol);
-      } else {
-        columns[nodeCol] = firstParent;
+    const mergingFrom: number[] = [];
+    for (const col of row.parentColumns) {
+      if (col !== row.nodeColumn) {
+        addUnique(branchingTo, col);
+        addUnique(mergingFrom, col);
       }
+    }
 
-      for (let p = 1; p < parentIds.length; p++) {
-        const parentId = parentIds[p];
-        const existingCol = findCommit(parentId);
-
-        if (existingCol !== -1) {
-          branchingTo.push(existingCol);
-        } else {
-          let newCol = findEmpty();
-          if (newCol === -1) {
-            newCol = columns.length;
-            columns.push(parentId);
-          } else {
-            columns[newCol] = parentId;
-          }
-          branchingTo.push(newCol);
+    const dashedSet = options?.dashedParents?.get(change.commitId);
+    const dashedParentColumns: number[] = [];
+    if (dashedSet && row.parentColumnsByHash.length > 0) {
+      for (const entry of row.parentColumnsByHash) {
+        if (dashedSet.has(entry.hash)) {
+          addUnique(dashedParentColumns, entry.column);
         }
       }
     }
 
-    if (nodeCol > 0 && columns[nodeCol] !== null) {
-      for (let col = 0; col < nodeCol; col++) {
-        if (columns[col] === null) {
-          columns[col] = columns[nodeCol];
-          columns[nodeCol] = null;
-          break;
-        }
-      }
-    }
+    maxColumnsEver = Math.max(maxColumnsEver, row.nodeLine.length);
 
-    maxColumnsEver = Math.max(maxColumnsEver, columns.length);
-
-    while (columns.length > 0 && columns[columns.length - 1] === null) {
-      columns.pop();
-    }
-
-    if (columns.length === 0) {
-      columns.push(null);
-    }
-
-    graphMap.set(change.changeId, {
-      nodeColumn: nodeCol,
+    graphMap.set(change.commitId, {
+      nodeColumn: row.nodeColumn,
       activeColumns,
       maxColumns: 0,
-      isTip,
-      hasParents: parentIds.length > 0,
+      isTip: row.isHead,
+      hasParents: change.parentIds.length > 0,
       mergingFrom,
       branchingTo,
-      hasTopLine: !isTip,
-      hasBottomLine: parentIds.length > 0,
+      hasTopLine: row.preNodeLine[row.nodeColumn] !== PadLine.Blank,
+      hasBottomLine: row.postNodeLine[row.nodeColumn] !== PadLine.Blank,
+      preNodeLine: row.preNodeLine,
+      postNodeLine: row.postNodeLine,
+      linkLine: row.linkLine?.map((line) => line.valueOf()),
+      linkLineFromNode: row.linkLineFromNode?.map((line) => line.valueOf()),
+      parentColumns: row.parentColumns,
+      dashedParentColumns,
     });
   }
 
@@ -218,7 +269,7 @@ export function computeGraphFromRows(rows: LogRow[]): Map<string, GraphInfo> {
       hasBottomLine = true;
     }
 
-    graphMap.set(change.changeId, {
+    graphMap.set(change.commitId, {
       nodeColumn,
       activeColumns,
       maxColumns: maxColumnsEver,

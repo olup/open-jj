@@ -17,6 +17,12 @@ export class Repository implements vscode.Disposable {
   private _disposables: vscode.Disposable[] = [];
   private _githubService: GitHubService;
   private _githubInfo: { owner: string; repo: string } | null = null;
+  private _refreshTimer: NodeJS.Timeout | null = null;
+  private _refreshPromise: Promise<void> | null = null;
+  private _refreshResolve: (() => void) | null = null;
+  private _refreshInFlight = false;
+  private _refreshQueued = false;
+  private _refreshPrInfoRequested = false;
 
   private _onDidChange = new vscode.EventEmitter<void>();
   readonly onDidChange = this._onDidChange.event;
@@ -24,6 +30,7 @@ export class Repository implements vscode.Disposable {
   private _status: WorkingCopyStatus | null = null;
   private _log: Change[] = [];
   private _logRows: LogRow[] = [];
+  private _fullLog: Change[] = [];
   private _bookmarks: Bookmark[] = [];
   private _prInfo: Map<string, PullRequestInfo> = new Map();
 
@@ -80,6 +87,10 @@ export class Repository implements vscode.Disposable {
     return this._logRows;
   }
 
+  get fullLog(): Change[] {
+    return this._fullLog;
+  }
+
   get bookmarks(): Bookmark[] {
     return this._bookmarks;
   }
@@ -124,20 +135,13 @@ export class Repository implements vscode.Disposable {
       false
     );
 
-    // Debounce refresh calls
-    let refreshTimeout: NodeJS.Timeout | null = null;
-    const debouncedRefresh = () => {
-      if (refreshTimeout) {
-        clearTimeout(refreshTimeout);
-      }
-      refreshTimeout = setTimeout(() => {
-        this.refresh();
-      }, 1000);
+    const scheduleRefresh = () => {
+      void this.refresh();
     };
 
-    watcher.onDidChange(debouncedRefresh, null, this._disposables);
-    watcher.onDidCreate(debouncedRefresh, null, this._disposables);
-    watcher.onDidDelete(debouncedRefresh, null, this._disposables);
+    watcher.onDidChange(scheduleRefresh, null, this._disposables);
+    watcher.onDidCreate(scheduleRefresh, null, this._disposables);
+    watcher.onDidDelete(scheduleRefresh, null, this._disposables);
 
     this._disposables.push(watcher);
   }
@@ -146,17 +150,76 @@ export class Repository implements vscode.Disposable {
    * Refresh all repository state
    */
   async refresh(options?: { refreshPrInfo?: boolean }): Promise<void> {
-    const logLimit = vscode.workspace.getConfiguration('open-jj').get('logLimit', 50);
+    if (options?.refreshPrInfo) {
+      this._refreshPrInfoRequested = true;
+    }
 
-    const [status, logResult, bookmarks] = await Promise.all([
+    if (!this._refreshPromise) {
+      this._refreshPromise = new Promise((resolve) => {
+        this._refreshResolve = resolve;
+      });
+    }
+
+    if (this._refreshTimer) {
+      clearTimeout(this._refreshTimer);
+    }
+
+    this._refreshTimer = setTimeout(() => {
+      void this._runRefresh();
+    }, 500);
+
+    return this._refreshPromise;
+  }
+
+  private async _runRefresh(): Promise<void> {
+    if (this._refreshTimer) {
+      clearTimeout(this._refreshTimer);
+      this._refreshTimer = null;
+    }
+
+    if (this._refreshInFlight) {
+      this._refreshQueued = true;
+      return;
+    }
+
+    this._refreshInFlight = true;
+    const refreshPrInfo = this._refreshPrInfoRequested;
+    this._refreshPrInfoRequested = false;
+
+    await this._refreshNow({ refreshPrInfo });
+
+    this._refreshInFlight = false;
+
+    if (this._refreshQueued) {
+      this._refreshQueued = false;
+      this._refreshTimer = setTimeout(() => {
+        void this._runRefresh();
+      }, 200);
+      return;
+    }
+
+    const resolve = this._refreshResolve;
+    this._refreshPromise = null;
+    this._refreshResolve = null;
+    resolve?.();
+  }
+
+  private async _refreshNow(options?: { refreshPrInfo?: boolean }): Promise<void> {
+    const logLimit = vscode.workspace.getConfiguration('open-jj').get('logLimit', 0);
+    const logRevset = vscode.workspace.getConfiguration('open-jj').get('logRevset', 'committer_date(after:\"1 week ago\")');
+    const effectiveLimit = logLimit && logLimit > 0 ? logLimit : undefined;
+
+    const [status, logResult, fullLogResult, bookmarks] = await Promise.all([
       this.cli.status(),
-      this.cli.log(logLimit),
+      this.cli.log(logRevset, effectiveLimit),
+      this.cli.log('::'),
       this.cli.bookmarkList(),
     ]);
 
     this._status = status;
     this._log = logResult.changes;
     this._logRows = logResult.rows;
+    this._fullLog = fullLogResult.changes;
     this._bookmarks = bookmarks;
 
     if (options?.refreshPrInfo) {
@@ -315,8 +378,8 @@ export class Repository implements vscode.Disposable {
   /**
    * Get files changed in a specific revision
    */
-  async getFilesForRevision(revision: string): Promise<FileChange[]> {
-    return this.cli.showFiles(revision);
+  async getFilesForRevision(revision: string, includeConflicts = false): Promise<FileChange[]> {
+    return this.cli.showFiles(revision, includeConflicts);
   }
 
   /**

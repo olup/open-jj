@@ -122,6 +122,40 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
     })
   );
 
+  // Set revset
+  context.subscriptions.push(
+    vscode.commands.registerCommand('open-jj.setRevset', async () => {
+      if (!repository) {
+        return;
+      }
+      const options = [
+        { label: 'All', value: '::' },
+        { label: 'This week', value: 'committer_date(after:"1 week ago")' },
+        { label: 'This month', value: 'committer_date(after:"1 month ago")' },
+        { label: 'Mine', value: 'mine()' },
+        { label: 'Recent 200', value: '@ | ancestors(@, 200)' },
+      ];
+      const current = vscode.workspace.getConfiguration('open-jj').get('logRevset', '');
+      const pick = await vscode.window.showQuickPick(
+        options.map((option) => ({
+          label: option.label,
+          description: option.value,
+          picked: option.value === current,
+        })),
+        { placeHolder: 'Select revset' }
+      );
+      if (!pick) {
+        return;
+      }
+      const selected = options.find((option) => option.label === pick.label);
+      if (!selected) {
+        return;
+      }
+      await vscode.workspace.getConfiguration('open-jj').update('logRevset', selected.value, vscode.ConfigurationTarget.Workspace);
+      await repository.refresh();
+    })
+  );
+
   // Fetch from remote
   context.subscriptions.push(
     vscode.commands.registerCommand('open-jj.fetch', async () => {
