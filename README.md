@@ -1,4 +1,4 @@
-# Open JJ (VS Code)
+# OPEN JJ (VS Code)
 
 Jujutsu (jj) integration for VS Code with a fast, visual log view and bookmark tooling.
 

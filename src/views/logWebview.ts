@@ -416,10 +416,6 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       }).join('');
     })()}
   </div>
-  ${changes.length === 0 ? '' : `<details class="graph-text-panel">
-    <summary>Text graph</summary>
-    <pre class="graph-text">${this._escapeHtml(this._renderTextGraph(renderRows, graphInfo))}</pre>
-  </details>`}
   <script>
     const vscode = acquireVsCodeApi();
     function send(command, data = {}) {
@@ -776,79 +772,6 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     return svg;
   }
 
-  private _renderTextGraph(rows: LogRow[], graph: Map<string, GraphInfo>): string {
-    if (rows.length === 0) {
-      return '';
-    }
-
-    const maxColumns = Math.max(
-      ...rows.map((row) => row.change ? (graph.get(row.change.commitId)?.maxColumns ?? 1) : 1)
-    );
-    const cellWidth = 2;
-    const lines: string[] = [];
-
-    for (const row of rows) {
-      if (row.change) {
-        const change = row.change;
-        const info = graph.get(change.commitId);
-        if (!info) {
-          continue;
-        }
-
-        const width = Math.max(maxColumns * cellWidth - 1, 1);
-        const chars = new Array(width).fill(' ');
-        const nodePos = info.nodeColumn * cellWidth;
-
-        for (let col = 0; col < info.activeColumns.length; col++) {
-          if (!info.activeColumns[col]) continue;
-          const pos = col * cellWidth;
-          if (pos >= 0 && pos < chars.length) {
-            chars[pos] = '|';
-          }
-        }
-
-        for (const toCol of info.branchingTo) {
-          const start = Math.min(info.nodeColumn, toCol) * cellWidth;
-          const end = Math.max(info.nodeColumn, toCol) * cellWidth;
-          for (let i = start + 1; i < end && i < chars.length; i++) {
-            chars[i] = '-';
-          }
-        }
-
-        const nodeChar = change.isWorkingCopy ? '@' : change.isImmutable ? '#' : 'o';
-        if (nodePos >= 0 && nodePos < chars.length) {
-          chars[nodePos] = nodeChar;
-        }
-
-        const label = change.description && change.description !== '(no description)'
-          ? change.description
-          : 'Describe';
-        lines.push(`${chars.join('')} ${label}`);
-        continue;
-      }
-
-      const prefix = row.graphPrefix ?? '';
-      if (!prefix.trim()) {
-        continue;
-      }
-      const chars = new Array(Math.max(maxColumns * cellWidth - 1, 1)).fill(' ');
-      const prefixChars = Array.from(prefix);
-      for (let col = 0; col < prefixChars.length; col += cellWidth) {
-        const ch = prefixChars[col] ?? ' ';
-        if (ch !== ' ') {
-          const pos = col;
-          if (pos >= 0 && pos < chars.length) {
-            chars[pos] = ch === '-' ? '-' : '|';
-          }
-        }
-      }
-      lines.push(`${chars.join('')} ${row.label ?? ''}`.trimEnd());
-    }
-
-    return lines.join('\n');
-  }
-
-
   private _renderGraphRow(row: LogRow): string {
     const label = row.isElided ? '' : (row.label ? this._escapeHtml(row.label) : '');
     if (!label) {
@@ -1194,24 +1117,6 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       .graph-row-label {
         font-size: 12px;
         color: var(--vscode-descriptionForeground);
-      }
-
-      .graph-text-panel {
-        margin: 6px 8px 12px;
-      }
-
-      .graph-text-panel summary {
-        cursor: pointer;
-        color: var(--vscode-textLink-foreground);
-        font-size: 12px;
-      }
-
-      .graph-text {
-        font-family: var(--vscode-editor-font-family);
-        font-size: 11px;
-        color: var(--vscode-descriptionForeground);
-        margin-top: 6px;
-        white-space: pre;
       }
 
       .graph-elided-svg {
