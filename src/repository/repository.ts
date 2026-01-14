@@ -135,15 +135,37 @@ export class Repository implements vscode.Disposable {
       false
     );
 
-    const scheduleRefresh = () => {
+    const scheduleRefresh = (event: 'change' | 'create' | 'delete', uri: vscode.Uri) => {
+      const relPath = path.relative(this._rootPath, uri.fsPath);
+      if (this._isIgnoredRefreshPath(relPath)) {
+        return;
+      }
+      console.log(`[open-jj] refresh trigger: ${event} ${uri.fsPath}`);
       void this.refresh();
     };
 
-    watcher.onDidChange(scheduleRefresh, null, this._disposables);
-    watcher.onDidCreate(scheduleRefresh, null, this._disposables);
-    watcher.onDidDelete(scheduleRefresh, null, this._disposables);
+    watcher.onDidChange((uri) => scheduleRefresh('change', uri), null, this._disposables);
+    watcher.onDidCreate((uri) => scheduleRefresh('create', uri), null, this._disposables);
+    watcher.onDidDelete((uri) => scheduleRefresh('delete', uri), null, this._disposables);
 
     this._disposables.push(watcher);
+  }
+
+  private _isIgnoredRefreshPath(relPath: string): boolean {
+    const normalized = relPath.split(path.sep).join('/');
+    if (!normalized.startsWith('.jj/')) {
+      return false;
+    }
+    if (normalized.startsWith('.jj/working_copy/.tmp')) {
+      return true;
+    }
+    if (normalized.endsWith('.jj/working_copy/working_copy.lock')) {
+      return true;
+    }
+    if (normalized.endsWith('.jj/repo/git_import_export.lock')) {
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -305,8 +327,8 @@ export class Repository implements vscode.Disposable {
   /**
    * Squash a change into its parent
    */
-  async squash(revision?: string): Promise<boolean> {
-    const result = await this.cli.squash(revision);
+  async squash(revision?: string, options?: { ignoreImmutable?: boolean }): Promise<boolean> {
+    const result = await this.cli.squash(revision, options);
     if (result.success) {
       await this.refresh();
     }
@@ -316,8 +338,8 @@ export class Repository implements vscode.Disposable {
   /**
    * Edit a change (make it the working copy)
    */
-  async edit(revision: string): Promise<boolean> {
-    const result = await this.cli.edit(revision);
+  async edit(revision: string, options?: { ignoreImmutable?: boolean }): Promise<boolean> {
+    const result = await this.cli.edit(revision, options);
     if (result.success) {
       await this.refresh();
     }
@@ -327,8 +349,8 @@ export class Repository implements vscode.Disposable {
   /**
    * Abandon a change
    */
-  async abandon(revision: string): Promise<boolean> {
-    const result = await this.cli.abandon(revision);
+  async abandon(revision: string, options?: { ignoreImmutable?: boolean }): Promise<boolean> {
+    const result = await this.cli.abandon(revision, options);
     if (result.success) {
       await this.refresh();
     }
@@ -349,8 +371,8 @@ export class Repository implements vscode.Disposable {
   /**
    * Rebase a change onto a new parent
    */
-  async rebase(revision: string, destination: string): Promise<boolean> {
-    const result = await this.cli.rebase(revision, destination);
+  async rebase(revision: string, destination: string, options?: { ignoreImmutable?: boolean }): Promise<boolean> {
+    const result = await this.cli.rebase(revision, destination, options);
     if (result.success) {
       await this.refresh();
     }
@@ -360,8 +382,8 @@ export class Repository implements vscode.Disposable {
   /**
    * Move files from one change to another
    */
-  async moveFiles(fromRevision: string, toRevision: string, paths: string[]): Promise<boolean> {
-    const result = await this.cli.moveFiles(fromRevision, toRevision, paths);
+  async moveFiles(fromRevision: string, toRevision: string, paths: string[], options?: { ignoreImmutable?: boolean }): Promise<boolean> {
+    const result = await this.cli.moveFiles(fromRevision, toRevision, paths, options);
     if (result.success) {
       await this.refresh();
     }

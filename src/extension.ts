@@ -115,6 +115,35 @@ function setNoRepository(): void {
 }
 
 function registerCoreCommands(context: vscode.ExtensionContext): void {
+  const runWithImmutableEscalation = async (
+    change: Change,
+    actionLabel: string,
+    run: () => Promise<boolean>,
+    runIgnoreImmutable: () => Promise<boolean>
+  ): Promise<boolean> => {
+    const success = await run();
+    if (success) {
+      return true;
+    }
+
+    if (!change.isImmutable) {
+      return false;
+    }
+
+    const changeLabel = change.description && change.description !== '(no description)'
+      ? change.description
+      : change.changeIdShort;
+    const confirm = await vscode.window.showWarningMessage(
+      `"${changeLabel}" is immutable. ${actionLabel}?`,
+      { modal: true },
+      actionLabel
+    );
+    if (confirm !== actionLabel) {
+      return false;
+    }
+    return runIgnoreImmutable();
+  };
+
   // Refresh
   context.subscriptions.push(
     vscode.commands.registerCommand('open-jj.refresh', async () => {
@@ -135,12 +164,18 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
       };
       const trunkName = trunkFallback(repository);
       const options = [
-        { label: 'All (trunk)', value: `present(::${trunkName})` },
-        { label: 'Trunk line', value: `present(::${trunkName}) & ::present(${trunkName})` },
-        { label: 'Remote bookmarks', value: 'present(::remote_bookmarks())' },
-        { label: 'Root', value: 'root()' },
-        { label: 'Own', value: 'mine()' },
-        { label: 'Recent (week)', value: 'committer_date(after:"1 week ago")' },
+        {
+          label: 'Stack',
+          value: `ancestors(reachable(present(@), ~::${trunkName}), 2) | present(${trunkName})`,
+        },
+        {
+          label: 'Own',
+          value: `ancestors(reachable((present(@) | (mine() & mutable())), mutable()), 2) | present(${trunkName})`,
+        },
+        {
+          label: 'Recent (30 days)',
+          value: `present(@) | (::present(${trunkName}) & committer_date(after:"30 days ago")) | ancestors((::(committer_date(after:"30 days ago") | mutable()) ~ ::${trunkName}), 2)`,
+        },
       ];
       const current = vscode.workspace.getConfiguration('open-jj').get('logRevset', '');
       const pick = await vscode.window.showQuickPick(
@@ -260,9 +295,17 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
       if (!repository) {
         return;
       }
+      const repo = repository;
 
       const revision = change?.changeIdShort;
-      const success = await repository.squash(revision);
+      const success = change
+        ? await runWithImmutableEscalation(
+            change,
+            'Squash anyway',
+            () => repo.squash(revision),
+            () => repo.squash(revision, { ignoreImmutable: true })
+          )
+        : await repo.squash(revision);
 
       if (success) {
         vscode.window.showInformationMessage('Squashed change into parent');
@@ -278,6 +321,7 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
       if (!repository) {
         return;
       }
+      const repo = repository;
 
       // Handle both direct Change and tree item with change property
       const change = arg && 'change' in arg ? arg.change : arg;
@@ -285,7 +329,12 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
         return;
       }
 
-      const success = await repository.edit(change.changeIdShort);
+      const success = await runWithImmutableEscalation(
+        change,
+        'Edit anyway',
+        () => repo.edit(change.changeIdShort),
+        () => repo.edit(change.changeIdShort, { ignoreImmutable: true })
+      );
       if (success) {
         vscode.window.showInformationMessage(`Now editing ${change.changeIdShort}`);
       } else {
@@ -300,6 +349,7 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
       if (!repository) {
         return;
       }
+      const repo = repository;
 
       const change = arg && 'change' in arg ? arg.change : arg;
       if (!change) {
@@ -316,7 +366,12 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
         return;
       }
 
-      const success = await repository.abandon(change.changeIdShort);
+      const success = await runWithImmutableEscalation(
+        change,
+        'Abandon anyway',
+        () => repo.abandon(change.changeIdShort),
+        () => repo.abandon(change.changeIdShort, { ignoreImmutable: true })
+      );
       if (success) {
         vscode.window.showInformationMessage(`Abandoned ${change.changeIdShort}`);
       } else {
@@ -719,12 +774,13 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
       if (!repository || !arg) {
         return;
       }
+      const repo = repository;
 
       const { sourceChangeId, targetChangeId } = arg;
 
       // Find the changes to get short IDs for display
-      const sourceChange = repository.log.find(c => c.changeId === sourceChangeId);
-      const targetChange = repository.log.find(c => c.changeId === targetChangeId);
+      const sourceChange = repo.log.find(c => c.changeId === sourceChangeId);
+      const targetChange = repo.log.find(c => c.changeId === targetChangeId);
 
       if (!sourceChange || !targetChange) {
         vscode.window.showErrorMessage('Could not find changes');
@@ -741,7 +797,12 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
         return;
       }
 
-      const success = await repository.rebase(sourceChange.changeIdShort, targetChange.changeIdShort);
+      const success = await runWithImmutableEscalation(
+        sourceChange,
+        'Rebase anyway',
+        () => repo.rebase(sourceChange.changeIdShort, targetChange.changeIdShort),
+        () => repo.rebase(sourceChange.changeIdShort, targetChange.changeIdShort, { ignoreImmutable: true })
+      );
       if (success) {
         vscode.window.showInformationMessage(`Rebased ${sourceChange.changeIdShort} onto ${targetChange.changeIdShort}`);
       } else {
@@ -756,12 +817,13 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
       if (!repository || !arg) {
         return;
       }
+      const repo = repository;
 
       const { filePath, fromChangeId, toChangeId } = arg;
 
       // Find the changes to get short IDs
-      const fromChange = repository.log.find(c => c.changeId === fromChangeId);
-      const toChange = repository.log.find(c => c.changeId === toChangeId);
+      const fromChange = repo.log.find(c => c.changeId === fromChangeId);
+      const toChange = repo.log.find(c => c.changeId === toChangeId);
 
       if (!fromChange || !toChange) {
         vscode.window.showErrorMessage('Could not find changes');
@@ -778,7 +840,12 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
         return;
       }
 
-      const success = await repository.moveFiles(fromChange.changeIdShort, toChange.changeIdShort, [filePath]);
+      const success = await runWithImmutableEscalation(
+        fromChange,
+        'Move anyway',
+        () => repo.moveFiles(fromChange.changeIdShort, toChange.changeIdShort, [filePath]),
+        () => repo.moveFiles(fromChange.changeIdShort, toChange.changeIdShort, [filePath], { ignoreImmutable: true })
+      );
       if (success) {
         vscode.window.showInformationMessage(`Moved ${filePath} to ${toChange.changeIdShort}`);
       } else {

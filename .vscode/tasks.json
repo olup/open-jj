@@ -9,9 +9,36 @@
       "presentation": {
         "reveal": "never"
       },
+      "dependsOn": [
+        "npm: watch:webview"
+      ],
+      "dependsOrder": "parallel",
       "group": {
         "kind": "build",
         "isDefault": true
+      }
+    },
+    {
+      "type": "npm",
+      "script": "watch:webview",
+      "problemMatcher": [
+        {
+          "owner": "custom",
+          "pattern": [
+            {
+              "regexp": ".+"
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "vite v|building for production",
+            "endsPattern": "watching for file changes"
+          }
+        }
+      ],
+      "isBackground": true,
+      "presentation": {
+        "reveal": "never"
       }
     },
     {

@@ -4,6 +4,22 @@ import { Change, Bookmark, FileChange, PullRequestInfo, PullRequestState, LogRow
 import { GraphInfo, computeDistantParents, computeGraph } from './graphLayout';
 import { PadLine } from './renderDag';
 
+type SerializedChange = Omit<Change, 'authorTimestamp' | 'committerTimestamp'> & {
+  authorTimestamp: string;
+  committerTimestamp: string;
+};
+
+type WebviewState = {
+  hasRepository: boolean;
+  changes: SerializedChange[];
+  workingCopyFiles: FileChange[];
+  expandedCommitIds: string[];
+  changeFiles: Record<string, FileChange[]>;
+  graphInfo: Record<string, GraphInfo>;
+  prInfo: Record<string, PullRequestInfo>;
+  bookmarks: Bookmark[];
+};
+
 interface ChangeFilesEntry {
   files: FileChange[];
   version: number;
@@ -84,6 +100,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
   private _disposables: vscode.Disposable[] = [];
   private _expandedChanges: Set<string> = new Set();
   private _changeFiles = new ChangeFilesCache();
+  private _hasRendered = false;
 
   constructor(private readonly _extensionUri: vscode.Uri) {}
 
@@ -103,6 +120,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     _token: vscode.CancellationToken
   ): void {
     this._view = webviewView;
+    this._hasRendered = false;
 
     webviewView.webview.options = {
       enableScripts: true,
@@ -122,16 +140,20 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
   public refresh(): void {
     this._changeFiles.invalidateAll();
-    this._render();
     this._prefetchExpandedChanges(true);
+    this._render();
   }
 
   private _render(): void {
     if (!this._view) {
       return;
     }
-
-    this._view.webview.html = this._getHtmlContent();
+    if (!this._hasRendered) {
+      this._view.webview.html = this._getHtmlContent();
+      this._hasRendered = true;
+      return;
+    }
+    this._postState();
   }
 
   private _prefetchExpandedChanges(forceFetch: boolean): void {
@@ -163,8 +185,71 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     if (pending.length > 0) {
-      Promise.all(pending).then(() => this._render());
+      Promise.all(pending).then(() => this._postState());
     }
+  }
+
+  private _serializeChange(change: Change): SerializedChange {
+    return {
+      ...change,
+      authorTimestamp: change.authorTimestamp.toISOString(),
+      committerTimestamp: change.committerTimestamp.toISOString(),
+    };
+  }
+
+  private _getWebviewState(): WebviewState {
+    if (!this._repository) {
+      return {
+        hasRepository: false,
+        changes: [],
+        workingCopyFiles: [],
+        expandedCommitIds: [],
+        changeFiles: {},
+        graphInfo: {},
+        prInfo: {},
+        bookmarks: [],
+      };
+    }
+
+    const changes = this._repository.log;
+    const fullChanges = this._repository.fullLog ?? changes;
+    const { parentOverrides, dashedParents } = computeDistantParents(changes, fullChanges);
+    const graphInfoMap = computeGraph(changes, { parentOverrides, dashedParents });
+    const graphInfo: Record<string, GraphInfo> = {};
+    for (const [commitId, info] of graphInfoMap.entries()) {
+      graphInfo[commitId] = info;
+    }
+
+    const changeFiles: Record<string, FileChange[]> = {};
+    for (const commitId of this._expandedChanges) {
+      const files = this._changeFiles.get(commitId);
+      if (files) {
+        changeFiles[commitId] = files;
+      }
+    }
+
+    const prInfo: Record<string, PullRequestInfo> = {};
+    for (const [name, info] of this._repository.prInfo.entries()) {
+      prInfo[name] = info;
+    }
+
+    return {
+      hasRepository: true,
+      changes: changes.map((change) => this._serializeChange(change)),
+      workingCopyFiles: this._repository.changedFiles ?? [],
+      expandedCommitIds: Array.from(this._expandedChanges),
+      changeFiles,
+      graphInfo,
+      prInfo,
+      bookmarks: this._repository.bookmarks ?? [],
+    };
+  }
+
+  private _postState(): void {
+    if (!this._view) {
+      return;
+    }
+    void this._view.webview.postMessage({ type: 'state', state: this._getWebviewState() });
   }
 
   private async _handleMessage(message: { command: string; [key: string]: unknown }): Promise<void> {
@@ -183,10 +268,10 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
           if (change && !change.isWorkingCopy) {
             this._changeFiles
               .ensure(commitId, () => this._repository!.getFilesForRevision(change.commitIdShort, change.hasConflict), false)
-              .then(() => this._render());
+              .then(() => this._postState());
           }
         }
-        this.refresh();
+        this._postState();
         break;
 
       case 'editChange':
@@ -237,6 +322,18 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
       case 'refresh':
         await this._repository.refresh({ refreshPrInfo: true });
+        break;
+
+      case 'ready':
+        this._postState();
+        break;
+
+      case 'init':
+        vscode.commands.executeCommand('open-jj.init');
+        break;
+
+      case 'initWithGit':
+        vscode.commands.executeCommand('open-jj.initWithGit');
         break;
 
 
@@ -371,282 +468,38 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   private _getHtmlContent(): string {
-    const changes = this._repository?.log ?? [];
-    const fullChanges = this._repository?.fullLog ?? changes;
-    const logRows = this._repository?.logRows ?? changes.map((change) => ({
-      graphPrefix: '',
-      change,
-    }));
-    const renderRows = logRows.filter((row) => row.change);
-    const workingCopyFiles = this._repository?.changedFiles ?? [];
-    const { parentOverrides, dashedParents } = computeDistantParents(changes, fullChanges);
-    const graphInfo = computeGraph(changes, { parentOverrides, dashedParents });
+    if (!this._view) {
+      return '';
+    }
 
-    // Get codicon font URI
-    const codiconsUri = this._view?.webview.asWebviewUri(
+    const webview = this._view.webview;
+    const nonce = this._getNonce();
+
+    const codiconsUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, 'resources', 'codicons', 'codicon.css')
     );
+    const scriptUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, 'resources', 'webview', 'webview.js')
+    );
+    const styleUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, 'resources', 'webview', 'webview.css')
+    );
+
+    const stateJson = JSON.stringify(this._getWebviewState()).replace(/</g, '\u003c');
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data:; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}'; connect-src ${webview.cspSource};">
   <link href="${codiconsUri}" rel="stylesheet" />
-  <style>
-    ${this._getStyles()}
-  </style>
+  <link href="${styleUri}" rel="stylesheet" />
 </head>
 <body>
-  <div class="log">
-    ${changes.length === 0 ? '<div class="empty">No changes found</div>' : ''}
-    ${(() => {
-      return renderRows.map((row, index) => {
-        if (row.change) {
-          return this._renderChange(
-            row.change,
-            workingCopyFiles,
-            this._changeFiles,
-            index,
-            renderRows.length,
-            graphInfo.get(row.change.commitId)
-          );
-        }
-        return this._renderGraphRow(row);
-      }).join('');
-    })()}
-  </div>
-  <script>
-    const vscode = acquireVsCodeApi();
-    function send(command, data = {}) {
-      vscode.postMessage({ command, ...data });
-    }
-    function toggleChange(commitId) {
-      send('toggleChange', { commitId });
-    }
-    function editChange(changeId, event) {
-      if (event) event.stopPropagation();
-      send('editChange', { changeId });
-      hideContextMenu();
-    }
-    function manageBookmarks(changeId, event) {
-      if (event) event.stopPropagation();
-      send('manageBookmarks', { changeId });
-      hideContextMenu();
-    }
-    function openFile(path, event) {
-      if (event) event.stopPropagation();
-      send('openFile', { path });
-    }
-    function openDiff(path, revision, event) {
-      if (event) event.stopPropagation();
-      send('openDiff', { path, revision });
-    }
-    function describeChange(changeId, event) {
-      if (event) event.stopPropagation();
-      send('describeChange', { changeId });
-      hideContextMenu();
-    }
-    function squashChange(changeId) {
-      send('squashChange', { changeId });
-      hideContextMenu();
-    }
-    function abandonChange(changeId) {
-      send('abandonChange', { changeId });
-      hideContextMenu();
-    }
-
-    function newChangeFrom(changeId, event) {
-      if (event) event.stopPropagation();
-      send('newChangeFrom', { changeId });
-      hideContextMenu();
-    }
-
-    function copyChangeId(changeId) {
-      navigator.clipboard.writeText(changeId);
-      hideContextMenu();
-    }
-
-    function copyBookmarkName(bookmarkName) {
-      navigator.clipboard.writeText(bookmarkName);
-      hideContextMenu();
-    }
-
-    function pushAndCreatePr(bookmarkName) {
-      send('pushAndCreatePr', { bookmarkName });
-      hideContextMenu();
-    }
-
-    function openPrUrl(url, event) {
-      if (event) event.stopPropagation();
-      send('openUrl', { url });
-    }
-
-
-    let currentContextMenu = null;
-    function showContextMenu(event, changeId, isWorkingCopy) {
-      event.preventDefault();
-      event.stopPropagation();
-      hideContextMenu();
-
-      const menu = document.createElement('div');
-      menu.className = 'context-menu';
-      menu.innerHTML = \`
-        <div class="context-menu-item" onclick="copyChangeId('\${changeId}')">Copy Change ID</div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item" onclick="newChangeFrom('\${changeId}')">New Change</div>
-        <div class="context-menu-item" onclick="describeChange('\${changeId}')">Describe Change</div>
-        <div class="context-menu-item" onclick="manageBookmarks('\${changeId}')">Manage Bookmarks</div>
-        \${!isWorkingCopy ? \`<div class="context-menu-item" onclick="editChange('\${changeId}')">Edit Change</div>\` : ''}
-        <div class="context-menu-item" onclick="squashChange('\${changeId}')">Squash into Parent</div>
-        <div class="context-menu-separator"></div>
-        <div class="context-menu-item danger" onclick="abandonChange('\${changeId}')">Abandon Change</div>
-      \`;
-      menu.style.left = event.pageX + 'px';
-      menu.style.top = event.pageY + 'px';
-      document.body.appendChild(menu);
-      currentContextMenu = menu;
-    }
-
-    function hideContextMenu() {
-      if (currentContextMenu) {
-        currentContextMenu.remove();
-        currentContextMenu = null;
-      }
-    }
-
-    function showBookmarkMenu(event, bookmarkName, changeId, isTracked) {
-      event.preventDefault();
-      event.stopPropagation();
-      hideContextMenu();
-
-      const menu = document.createElement('div');
-      menu.className = 'context-menu';
-
-      let menuItems = '';
-      menuItems += \`<div class="context-menu-item" onclick="copyBookmarkName('\${bookmarkName}')">Copy Bookmark Name</div>\`;
-      menuItems += \`<div class="context-menu-separator"></div>\`;
-      if (isTracked) {
-        menuItems += \`<div class="context-menu-item" onclick="createPullRequest('\${bookmarkName}')">Create Pull Request</div>\`;
-        menuItems += \`<div class="context-menu-item" onclick="pushBookmark('\${bookmarkName}')">Push to Remote</div>\`;
-      } else {
-        menuItems += \`<div class="context-menu-item" onclick="pushBookmark('\${bookmarkName}')">Push to Remote</div>\`;
-        menuItems += \`<div class="context-menu-item" onclick="pushAndCreatePr('\${bookmarkName}')">Push and Create PR</div>\`;
-      }
-      menuItems += \`<div class="context-menu-separator"></div>\`;
-      menuItems += \`<div class="context-menu-item" onclick="manageBookmarks('\${changeId}')">Manage Bookmarks</div>\`;
-      menuItems += \`<div class="context-menu-separator"></div>\`;
-      menuItems += \`<div class="context-menu-item danger" onclick="deleteBookmark('\${bookmarkName}')">Delete Bookmark</div>\`;
-
-      menu.innerHTML = menuItems;
-      menu.style.left = event.pageX + 'px';
-      menu.style.top = event.pageY + 'px';
-      document.body.appendChild(menu);
-      currentContextMenu = menu;
-    }
-
-    function pushBookmark(bookmarkName) {
-      send('pushBookmark', { bookmarkName });
-      hideContextMenu();
-    }
-
-    function deleteBookmark(bookmarkName) {
-      send('deleteBookmark', { bookmarkName });
-      hideContextMenu();
-    }
-
-    function createPullRequest(bookmarkName) {
-      send('createPullRequest', { bookmarkName });
-      hideContextMenu();
-    }
-
-    document.addEventListener('click', hideContextMenu);
-
-    // Drag and drop handlers - use JSON in text/plain for webview compatibility
-    let dragData = null;
-
-    function dragChange(event, changeId) {
-      event.stopPropagation();
-      dragData = { type: 'change', changeId: changeId };
-      event.dataTransfer.setData('text/plain', JSON.stringify(dragData));
-      event.dataTransfer.effectAllowed = 'move';
-    }
-
-    function dragBookmark(event, bookmarkName, fromChangeId) {
-      event.stopPropagation();
-      dragData = { type: 'bookmark', bookmarkName: bookmarkName, fromChangeId: fromChangeId };
-      event.dataTransfer.setData('text/plain', 'bookmark');
-      event.dataTransfer.effectAllowed = 'move';
-    }
-
-    function dragFile(event, filePath, fromChangeId) {
-      event.stopPropagation();
-      dragData = { type: 'file', filePath: filePath, fromChangeId: fromChangeId };
-      event.dataTransfer.setData('text/plain', JSON.stringify(dragData));
-      event.dataTransfer.effectAllowed = 'move';
-    }
-
-    // Use document-level event delegation for drag/drop to handle events on child elements
-    document.addEventListener('dragover', function(event) {
-      const header = event.target.closest('.change-header');
-      if (header) {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-      }
-    });
-
-    document.addEventListener('dragenter', function(event) {
-      const header = event.target.closest('.change-header');
-      if (header) {
-        event.preventDefault();
-        header.classList.add('drag-over');
-      }
-    });
-
-    document.addEventListener('dragleave', function(event) {
-      const header = event.target.closest('.change-header');
-      if (header) {
-        const relatedTarget = event.relatedTarget;
-        // Only remove drag-over if we're actually leaving the header, not entering a child
-        if (!relatedTarget || !header.contains(relatedTarget)) {
-          header.classList.remove('drag-over');
-        }
-      }
-    });
-
-    document.addEventListener('drop', function(event) {
-      const header = event.target.closest('.change-header');
-      if (header) {
-        event.preventDefault();
-        event.stopPropagation();
-        header.classList.remove('drag-over');
-
-        const targetChangeId = header.dataset.changeId;
-        if (!dragData || !targetChangeId) {
-          return;
-        }
-
-        const data = dragData;
-        dragData = null;
-
-        if (data.type === 'change') {
-          if (data.changeId !== targetChangeId) {
-            send('rebaseChange', { sourceChangeId: data.changeId, targetChangeId: targetChangeId });
-          }
-        } else if (data.type === 'bookmark') {
-          vscode.postMessage({
-            command: 'moveBookmark',
-            bookmarkName: data.bookmarkName,
-            targetChangeId: targetChangeId
-          });
-        } else if (data.type === 'file') {
-          if (data.fromChangeId !== targetChangeId) {
-            send('moveFile', { filePath: data.filePath, fromChangeId: data.fromChangeId, targetChangeId: targetChangeId });
-          }
-        }
-      }
-    });
-  </script>
+  <div id="root"></div>
+  <script nonce="${nonce}">window.__INITIAL_STATE__ = ${stateJson};</script>
+  <script type="module" nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
   }
@@ -675,19 +528,19 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     const descriptionHtml = hasDescription
       ? `<span class="change-desc">${isWorkingCopy ? '@ ' : ''}${this._escapeHtml(change.description)}</span>`
       : `<span class="change-desc placeholder">${isWorkingCopy ? '@ ' : ''}</span>
-         <button class="describe-btn" onclick="describeChange('${change.changeId}', event)" title="Describe change">Describe</button>`;
+         <button class="describe-btn" data-action="describe-change" data-change-id="${change.changeId}" title="Describe change">Describe</button>`;
 
     return `
       <div class="change ${isWorkingCopy ? 'working-copy' : ''} ${change.hasConflict ? 'conflict' : ''}" data-change-id="${change.changeId}" data-commit-id="${change.commitId}" data-parent-ids='${JSON.stringify(change.parentIds)}'>
-        <div class="change-header" data-change-id="${change.changeId}" data-commit-id="${change.commitId}" onclick="toggleChange('${change.commitId}')" oncontextmenu="showContextMenu(event, '${change.changeId}', ${isWorkingCopy})">
-          <span class="graph-node" draggable="true" ondragstart="dragChange(event, '${change.changeId}')" onclick="event.stopPropagation()" ondblclick="editChange('${change.changeId}', event)" title="Double-click to edit change">
+        <div class="change-header" data-change-id="${change.changeId}" data-commit-id="${change.commitId}" data-working-copy="${isWorkingCopy}">
+          <span class="graph-node" draggable="true" data-drag-type="change" data-change-id="${change.changeId}" title="Double-click to edit change">
             ${graphMarkup}
           </span>
           <span class="expand-icon codicon ${hasFiles ? '' : 'hidden'} ${isExpanded ? 'codicon-chevron-down' : 'codicon-chevron-right'}"></span>
           ${descriptionHtml}
           ${this._renderBookmarks(localBookmarks, remoteBookmarks, change.changeId)}
           <span class="change-actions">
-            <button class="icon-button small" onclick="newChangeFrom('${change.changeId}', event)" title="New change from here">
+            <button class="icon-button small" data-action="new-change-from" data-change-id="${change.changeId}" title="New change from here">
               <span class="codicon codicon-add"></span>
             </button>
           </span>
@@ -858,7 +711,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         tooltip += ' - DIVERGED from remote';
       }
 
-      const safeName = cleanName.replace(/'/g, "\\'").replace(/"/g, '\\"');
+      const safeName = this._escapeHtml(cleanName);
       const displayName = cleanName;
       const conflictIcon = isDiverged
         ? '<span class="codicon codicon-cloud badge-cloud-icon diverged" title="Diverged"></span>'
@@ -867,10 +720,9 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         ? '<span class="codicon codicon-cloud badge-cloud-icon" title="Synced"></span>'
         : '';
       const prIcon = pr ? '<span class="codicon codicon-git-merge badge-pr-icon" title="Pull request"></span>' : '';
-      const prUrl = pr?.url ? pr.url.replace(/'/g, "\\'") : '';
-      const onclickHandler = prUrl ? `onclick="openPrUrl('${prUrl}', event)"` : '';
+      const prUrl = pr?.url ? this._escapeHtml(pr.url) : '';
       const clickableClass = prUrl ? ' clickable' : '';
-      badges.push(`<span class="${badgeClass}${clickableClass}" draggable="true" ondragstart="dragBookmark(event, '${safeName}', '${changeId}')" oncontextmenu="showBookmarkMenu(event, '${safeName}', '${changeId}', ${isTracked})" ${onclickHandler} title="${tooltip}">${this._escapeHtml(displayName)}${prIcon}${syncedIcon}${conflictIcon}</span>`);
+      badges.push(`<span class="${badgeClass}${clickableClass}" draggable="true" data-drag-type="bookmark" data-bookmark-name="${safeName}" data-change-id="${changeId}" data-tracked="${isTracked}" data-pr-url="${prUrl}" title="${tooltip}">${this._escapeHtml(displayName)}${prIcon}${syncedIcon}${conflictIcon}</span>`);
     }
 
     // Show remote-only bookmarks (not draggable - can't move remote-only)
@@ -883,7 +735,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     if (badges.length === 0) return '';
-    return `<span class="bookmarks" onclick="manageBookmarks('${changeId}', event)" title="Manage Bookmarks">${badges.join('')}</span>`;
+    return `<span class="bookmarks" data-action="manage-bookmarks" data-change-id="${changeId}" title="Manage Bookmarks">${badges.join('')}</span>`;
   }
 
   private _renderFiles(files: FileChange[], revision?: string, changeId?: string, graphInfo?: GraphInfo): string {
@@ -895,12 +747,12 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         <div class="files-gutter"${gutterStyle}>${gutter.svg}</div>
         <div class="files-list"${listStyle}>
           ${files.map(file => `
-            <div class="file" draggable="true" ondragstart="dragFile(event, '${this._escapeHtml(file.path)}', '${changeId || ''}')" title="Drag to move to another change">
+            <div class="file" draggable="true" data-drag-type="file" data-file-path="${this._escapeHtml(file.path)}" data-change-id="${changeId || ''}" title="Drag to move to another change">
               <span class="file-icon ${file.status}"><span class="codicon ${this._getFileIcon(file.status)}"></span></span>
-              <span class="file-path" onclick="openDiff('${this._escapeHtml(file.path)}', ${revision ? `'${revision}'` : 'undefined'}, event)">
+              <span class="file-path" data-action="open-diff" data-file-path="${this._escapeHtml(file.path)}" data-revision="${revision ?? ''}">
                 ${this._escapeHtml(file.path)}
               </span>
-              <button class="icon-button small" onclick="openFile('${this._escapeHtml(file.path)}', event)" title="Open File">
+              <button class="icon-button small" data-action="open-file" data-file-path="${this._escapeHtml(file.path)}" title="Open File">
                 <span class="codicon codicon-go-to-file"></span>
               </button>
             </div>
@@ -955,460 +807,15 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       .replace(/'/g, '&#039;');
   }
 
-  private _getStyles(): string {
-    return `
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-
-      body {
-        font-family: var(--vscode-font-family);
-        font-size: var(--vscode-font-size);
-        color: var(--vscode-foreground);
-        background: var(--vscode-sideBar-background);
-        padding: 0;
-      }
-
-      .toolbar {
-        display: flex;
-        gap: 4px;
-        padding: 4px 8px;
-        border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border);
-        background: var(--vscode-sideBarSectionHeader-background);
-      }
-
-      .icon-button {
-        background: transparent;
-        border: none;
-        color: var(--vscode-foreground);
-        cursor: pointer;
-        padding: 4px;
-        border-radius: 4px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .icon-button:hover {
-        background: var(--vscode-toolbar-hoverBackground);
-      }
-
-      .icon-button.small {
-        padding: 2px;
-        opacity: 0;
-        transition: opacity 0.1s;
-      }
-
-      .change-header:hover .icon-button.small,
-      .file:hover .icon-button.small {
-        opacity: 1;
-      }
-
-      .codicon {
-        font-family: codicon;
-        font-size: 14px;
-      }
-
-      .codicon-add::before { content: "\\ea60"; }
-      .codicon-refresh::before { content: "\\eb37"; }
-      .codicon-bookmark::before { content: "\\ea67"; }
-      .codicon-edit::before { content: "\\ea73"; }
-      .codicon-go-to-file::before { content: "\\ea94"; }
-      .codicon-chevron-right::before { content: "\\eab6"; }
-      .codicon-chevron-down::before { content: "\\eab4"; }
-      .codicon-github::before { content: "\\ea84"; }
-
-      .github-btn {
-        margin-left: auto;
-      }
-
-      .github-btn.authenticated {
-        color: var(--vscode-gitDecoration-addedResourceForeground);
-      }
-
-      .log {
-        padding: 4px 0 4px 6px;
-        position: relative;
-        z-index: 2;
-      }
-
-      .empty {
-        padding: 16px;
-        text-align: center;
-        color: var(--vscode-descriptionForeground);
-      }
-
-      .change {
-        /* Node styling is handled by SVG */
-      }
-
-      .change-header {
-        display: flex;
-        align-items: center;
-        gap: 0;
-        padding: 0 8px 0 0;
-        cursor: pointer;
-        user-select: none;
-        min-height: 28px;
-      }
-
-      .change-header:hover {
-        background: var(--vscode-list-hoverBackground);
-      }
-
-      .graph-cell {
-        flex-shrink: 0;
-        margin-right: 4px;
-        display: flex;
-        align-items: center;
-      }
-
-      .expand-icon {
-        width: 14px;
-        min-width: 14px;
-        font-size: 14px;
-        color: var(--vscode-descriptionForeground);
-        flex-shrink: 0;
-      }
-
-      .expand-icon.hidden {
-        visibility: hidden;
-      }
-
-      .graph-node {
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        min-width: 12px;
-        flex-shrink: 0;
-        cursor: grab;
-      }
-
-      .graph-node:active {
-        cursor: grabbing;
-      }
-
-      .graph-row {
-        display: flex;
-        align-items: center;
-        padding: 0 8px 0 0;
-        min-height: 20px;
-        color: var(--vscode-descriptionForeground);
-      }
-
-      .graph-row.elided {
-        opacity: 0.8;
-        font-style: italic;
-      }
-
-      .graph-prefix {
-        display: inline-block;
-        white-space: pre;
-        font-family: var(--vscode-editor-font-family);
-        font-size: 12px;
-        line-height: 1;
-        min-width: 20px;
-        margin-right: 4px;
-        color: var(--vscode-textLink-foreground);
-      }
-
-      .graph-row-label {
-        font-size: 12px;
-        color: var(--vscode-descriptionForeground);
-      }
-
-      .graph-elided-svg {
-        display: block;
-      }
-
-      .graph-elided-line {
-        stroke: var(--vscode-descriptionForeground);
-        stroke-width: 1.5;
-        stroke-dasharray: 4 3;
-        opacity: 1;
-        stroke-linecap: round;
-      }
-
-      .graph-node svg {
-        display: block;
-        flex-shrink: 0;
-      }
-
-      /* Drag and drop styles */
-      .change-header.drag-over {
-        background: var(--vscode-list-dropBackground);
-        outline: 1px dashed var(--vscode-focusBorder);
-      }
-
-      .badge[draggable="true"] {
-        cursor: grab;
-      }
-
-      .badge[draggable="true"]:active {
-        cursor: grabbing;
-      }
-
-      .file[draggable="true"] {
-        cursor: grab;
-      }
-
-      .file[draggable="true"]:active {
-        cursor: grabbing;
-      }
-
-      .change-desc {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        margin-left: 4px;
-      }
-
-      .change-desc.placeholder {
-        min-width: 4px;
-      }
-
-      .describe-btn {
-        border: none;
-        background: var(--vscode-button-secondaryBackground);
-        color: var(--vscode-button-secondaryForeground);
-        font-size: 11px;
-        padding: 2px 6px;
-        border-radius: 4px;
-        cursor: pointer;
-      }
-
-      .describe-btn:hover {
-        background: var(--vscode-button-secondaryHoverBackground);
-      }
-
-      .change-actions {
-        display: flex;
-        gap: 2px;
-        margin-left: auto;
-        padding-left: 8px;
-      }
-
-      .bookmarks {
-        display: flex;
-        flex-shrink: 0;
-        white-space: nowrap;
-        cursor: pointer;
-        margin-left: 4px;
-      }
-
-      .bookmarks:hover .badge {
-        opacity: 0.8;
-      }
-
-      /* Bookmark badges */
-      .badge {
-        display: inline-block;
-        padding: 1px 6px;
-        border-radius: 3px;
-        font-size: 11px;
-        font-weight: 500;
-        margin-left: 4px;
-        flex-shrink: 0;
-      }
-
-      /* Local: gray - not pushed yet */
-      .badge.local {
-        background: var(--vscode-badge-background);
-        color: var(--vscode-badge-foreground);
-      }
-
-      /* Tracked: blue - pushed to remote but no PR */
-      .badge.tracked {
-        background: #0969da;
-        color: white;
-      }
-
-      /* PR Open: purple - has open PR */
-      .badge.pr-open {
-        background: #8250df;
-        color: white;
-      }
-
-      /* PR Draft: gray-purple - has draft PR */
-      .badge.pr-draft {
-        background: #6e7781;
-        color: white;
-      }
-
-      /* PR Closed: red - PR was closed without merge */
-      .badge.pr-closed {
-        background: var(--vscode-editor-background);
-        color: var(--vscode-descriptionForeground);
-        border: 1px solid var(--vscode-editorWidget-border);
-        opacity: 0.65;
-      }
-
-      /* Merged: green - PR was merged */
-      .badge.merged {
-        background: #1a7f37;
-        color: white;
-      }
-
-      /* Remote only: dim - only exists on remote */
-      .badge.remote {
-        background: var(--vscode-gitDecoration-modifiedResourceForeground);
-        color: var(--vscode-editor-background);
-        opacity: 0.7;
-      }
-
-      /* Conflicted: add warning border */
-      .badge.conflicted {
-        border: 2px solid #d29922;
-      }
-
-      .badge-cloud-icon {
-        margin-left: 4px;
-        font-size: 10px;
-        vertical-align: -1px;
-        position: relative;
-        display: inline-block;
-      }
-
-      .badge-cloud-icon.codicon {
-        font-size: 10px;
-      }
-
-      .badge-cloud-icon.diverged::after {
-        content: '';
-        position: absolute;
-        left: -1px;
-        top: 5px;
-        width: 12px;
-        height: 1px;
-        background: currentColor;
-        transform: rotate(-35deg);
-        opacity: 0.9;
-      }
-
-      .badge-pr-icon {
-        margin-left: 4px;
-        font-size: 10px;
-        vertical-align: -1px;
-        opacity: 0.9;
-      }
-
-      .badge-pr-icon.codicon {
-        font-size: 10px;
-      }
-
-      /* Clickable badges (have PR URL) */
-      .badge.clickable {
-        cursor: pointer;
-      }
-
-      .badge.clickable:hover {
-        opacity: 0.8;
-        text-decoration: underline;
-      }
-
-      /* Files */
-      .files {
-        padding-left: 0;
-        padding-bottom: 4px;
-        position: relative;
-      }
-
-      .file {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 2px 8px;
-        cursor: pointer;
-      }
-
-      .file:hover {
-        background: var(--vscode-list-hoverBackground);
-      }
-
-      .file-icon {
-        width: 16px;
-        text-align: center;
-      }
-
-      .file-icon .codicon {
-        font-size: 14px;
-      }
-
-      .files-gutter {
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        pointer-events: none;
-      }
-
-      .graph-file-svg {
-        display: block;
-        height: 100%;
-      }
-
-      .files-list {
-        display: block;
-      }
-
-      .file-icon.added { color: var(--vscode-gitDecoration-addedResourceForeground); }
-      .file-icon.modified { color: var(--vscode-gitDecoration-modifiedResourceForeground); }
-      .file-icon.deleted { color: var(--vscode-gitDecoration-deletedResourceForeground); }
-      .file-icon.conflict { color: var(--vscode-gitDecoration-conflictingResourceForeground); }
-
-      .file-path {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-family: var(--vscode-font-family);
-        font-size: var(--vscode-font-size);
-      }
-
-      .file-path:hover {
-        text-decoration: none;
-      }
-
-      /* Context menu */
-      .context-menu {
-        position: absolute;
-        background: var(--vscode-menu-background);
-        border: 1px solid var(--vscode-menu-border);
-        border-radius: 4px;
-        padding: 4px 0;
-        min-width: 160px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        z-index: 1000;
-      }
-
-      .context-menu-item {
-        padding: 6px 12px;
-        cursor: pointer;
-        color: var(--vscode-menu-foreground);
-      }
-
-      .context-menu-item:hover {
-        background: var(--vscode-menu-selectionBackground);
-        color: var(--vscode-menu-selectionForeground);
-      }
-
-      .context-menu-item.danger {
-        color: var(--vscode-errorForeground);
-      }
-
-      .context-menu-item.danger:hover {
-        background: var(--vscode-inputValidation-errorBackground);
-      }
-
-      .context-menu-separator {
-        height: 1px;
-        background: var(--vscode-menu-separatorBackground);
-        margin: 4px 0;
-      }
-    `;
+  private _getNonce(): string {
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let nonce = '';
+    for (let i = 0; i < 32; i += 1) {
+      nonce += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return nonce;
   }
+
 
   dispose(): void {
     this._disposables.forEach(d => d.dispose());

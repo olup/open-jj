@@ -283,10 +283,13 @@ export class JJCli {
   /**
    * Squash the current change into its parent
    */
-  async squash(revision?: string): Promise<CommandResult> {
+  async squash(revision?: string, options?: { ignoreImmutable?: boolean }): Promise<CommandResult> {
     const args = ['squash'];
     if (revision) {
       args.push('-r', revision);
+    }
+    if (options?.ignoreImmutable) {
+      args.unshift('--ignore-immutable');
     }
     return this.execute(args);
   }
@@ -294,15 +297,23 @@ export class JJCli {
   /**
    * Edit a change (make it the working copy)
    */
-  async edit(revision: string): Promise<CommandResult> {
-    return this.execute(['edit', revision]);
+  async edit(revision: string, options?: { ignoreImmutable?: boolean }): Promise<CommandResult> {
+    const args = ['edit', revision];
+    if (options?.ignoreImmutable) {
+      args.unshift('--ignore-immutable');
+    }
+    return this.execute(args);
   }
 
   /**
    * Abandon a change
    */
-  async abandon(revision: string): Promise<CommandResult> {
-    return this.execute(['abandon', revision]);
+  async abandon(revision: string, options?: { ignoreImmutable?: boolean }): Promise<CommandResult> {
+    const args = ['abandon', revision];
+    if (options?.ignoreImmutable) {
+      args.unshift('--ignore-immutable');
+    }
+    return this.execute(args);
   }
 
   /**
@@ -319,16 +330,23 @@ export class JJCli {
   /**
    * Rebase a change onto a new parent
    */
-  async rebase(revision: string, destination: string): Promise<CommandResult> {
-    return this.execute(['rebase', '-s', revision, '-d', destination]);
+  async rebase(revision: string, destination: string, options?: { ignoreImmutable?: boolean }): Promise<CommandResult> {
+    const args = ['rebase', '-s', revision, '-d', destination];
+    if (options?.ignoreImmutable) {
+      args.unshift('--ignore-immutable');
+    }
+    return this.execute(args);
   }
 
   /**
    * Move/squash specific files from one change to another
    */
-  async moveFiles(fromRevision: string, toRevision: string, paths: string[]): Promise<CommandResult> {
+  async moveFiles(fromRevision: string, toRevision: string, paths: string[], options?: { ignoreImmutable?: boolean }): Promise<CommandResult> {
     // Use squash with --from and --into to move specific files
     const args = ['squash', '--from', fromRevision, '--into', toRevision, ...paths];
+    if (options?.ignoreImmutable) {
+      args.unshift('--ignore-immutable');
+    }
     return this.execute(args);
   }
 
