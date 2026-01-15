@@ -129,6 +129,22 @@ function getInitialState(): WebviewState {
   );
 }
 
+// LinkLine bit flags (must match renderDag.ts)
+const LinkLine = {
+  HORIZ_PARENT: 1 << 0,
+  HORIZ_ANCESTOR: 1 << 1,
+  VERT_PARENT: 1 << 2,
+  VERT_ANCESTOR: 1 << 3,
+  LEFT_FORK_PARENT: 1 << 4,
+  LEFT_FORK_ANCESTOR: 1 << 5,
+  RIGHT_FORK_PARENT: 1 << 6,
+  RIGHT_FORK_ANCESTOR: 1 << 7,
+  LEFT_MERGE_PARENT: 1 << 8,
+  LEFT_MERGE_ANCESTOR: 1 << 9,
+  RIGHT_MERGE_PARENT: 1 << 10,
+  RIGHT_MERGE_ANCESTOR: 1 << 11,
+};
+
 function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphInfo?: GraphInfo): string {
   const colWidth = GRAPH_COL_WIDTH;
   const height = 28;
@@ -159,9 +175,31 @@ function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphI
   const postNodeLine = graphInfo?.postNodeLine ?? [];
   const parentColumns = graphInfo?.parentColumns ?? [];
   const dashedParentColumns = new Set(graphInfo?.dashedParentColumns ?? []);
+  const linkLine = graphInfo?.linkLine ?? [];
+  const linkLineFromNode = graphInfo?.linkLineFromNode ?? [];
 
   const dashedRanges = (graphInfo?.dashedParentColumns ?? []).map((col) => ({ min: col - 0.5, max: col + 0.5 }));
   const isDashedColumn = (col: number) => dashedRanges.some((range) => col > range.min && col < range.max);
+
+  // Pre-compute isFromNode for vertical line drawing
+  const nodeFromFlags = linkLineFromNode[nodeColumn] ?? 0;
+  const isFromNode = nodeFromFlags !== 0;
+
+  // Find the column where the fromNode curve starts (right column with LEFT_MERGE when isFromNode)
+  let fromNodeCurveStartCol = -1;
+  if (isFromNode) {
+    const nodeFlags = linkLine[nodeColumn] ?? 0;
+    const hasRightFork = (nodeFlags & (LinkLine.RIGHT_FORK_PARENT | LinkLine.RIGHT_FORK_ANCESTOR)) !== 0;
+    if (hasRightFork) {
+      for (let col = nodeColumn + 1; col < linkLine.length; col++) {
+        const colFlags = linkLine[col] ?? 0;
+        if ((colFlags & (LinkLine.LEFT_MERGE_PARENT | LinkLine.LEFT_MERGE_ANCESTOR)) !== 0) {
+          fromNodeCurveStartCol = col;
+          break;
+        }
+      }
+    }
+  }
 
   for (let col = 0; col < maxColumns; col += 1) {
     const x = col * colWidth + colWidth / 2;
@@ -172,11 +210,16 @@ function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphI
     if (col === nodeColumn && !hasStraightParent) {
       continue;
     }
+    // Skip bottom vertical line on fromNode curve start column (curve replaces it)
+    if (col === fromNodeCurveStartCol) {
+      continue;
+    }
     if (postNodeLine[col] !== undefined && postNodeLine[col] !== 0) {
       svg += `<line x1="${x}" y1="${cy}" x2="${x}" y2="${height}" stroke="${lineColor}" stroke-width="1"/>`;
     }
   }
 
+  // Draw curves from parentColumns (for multi-parent merges)
   for (const parentCol of parentColumns) {
     if (parentCol === nodeColumn) {
       continue;
@@ -189,8 +232,68 @@ function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphI
     svg += `<path d="M ${nodeX} ${startY} C ${nodeX} ${midY} ${parentX} ${midY} ${parentX} ${linkY}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
   }
 
+  // Draw curves from linkLine (for fork/merge patterns after column swap)
+  // Check if nodeColumn has RIGHT_FORK and find the corresponding LEFT_MERGE column
+  const nodeFlags = linkLine[nodeColumn] ?? 0;
+  const hasRightFork = (nodeFlags & (LinkLine.RIGHT_FORK_PARENT | LinkLine.RIGHT_FORK_ANCESTOR)) !== 0;
+  if (hasRightFork) {
+    // Find the column with LEFT_MERGE
+    for (let col = nodeColumn + 1; col < linkLine.length; col++) {
+      const colFlags = linkLine[col] ?? 0;
+      const hasLeftMerge = (colFlags & (LinkLine.LEFT_MERGE_PARENT | LinkLine.LEFT_MERGE_ANCESTOR)) !== 0;
+      if (hasLeftMerge) {
+        const targetX = col * colWidth + colWidth / 2;
+        const dashed = isDashedColumn(col) ? ' stroke-dasharray="3 3"' : '';
+        // If fromNode, curve goes from top-right to bottom-left (branching out to parent)
+        // Otherwise, curve goes from node down to bottom-right (merging in from child)
+        if (isFromNode) {
+          // Branching out: middle of right column to bottom of left column (node column)
+          const startY = cy;
+          const endY = linkY;
+          const midY = (startY + endY) / 2;
+          svg += `<path d="M ${targetX} ${startY} C ${targetX} ${midY} ${nodeX} ${midY} ${nodeX} ${endY}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
+        } else {
+          const edgeOffset = Math.min(nodeSize + 1, 5);
+          const startY = cy + edgeOffset;
+          const midY = (startY + linkY) / 2;
+          svg += `<path d="M ${nodeX} ${startY} C ${nodeX} ${midY} ${targetX} ${midY} ${targetX} ${linkY}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
+        }
+        break;
+      }
+    }
+  }
+
+  // Check for LEFT_FORK pattern (curve going left)
+  const hasLeftFork = (nodeFlags & (LinkLine.LEFT_FORK_PARENT | LinkLine.LEFT_FORK_ANCESTOR)) !== 0;
+  if (hasLeftFork) {
+    // Find the column with RIGHT_MERGE
+    for (let col = nodeColumn - 1; col >= 0; col--) {
+      const colFlags = linkLine[col] ?? 0;
+      const hasRightMerge = (colFlags & (LinkLine.RIGHT_MERGE_PARENT | LinkLine.RIGHT_MERGE_ANCESTOR)) !== 0;
+      if (hasRightMerge) {
+        const targetX = col * colWidth + colWidth / 2;
+        const dashed = isDashedColumn(col) ? ' stroke-dasharray="3 3"' : '';
+        // If fromNode, curve goes from top-left to bottom-right (branching out to parent)
+        // Otherwise, curve goes from node down to bottom-left (merging in from child)
+        if (isFromNode) {
+          // Branching out: middle of left column to bottom of right column (node column)
+          const startY = cy;
+          const endY = linkY;
+          const midY = (startY + endY) / 2;
+          svg += `<path d="M ${targetX} ${startY} C ${targetX} ${midY} ${nodeX} ${midY} ${nodeX} ${endY}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
+        } else {
+          const edgeOffset = Math.min(nodeSize + 1, 5);
+          const startY = cy + edgeOffset;
+          const midY = (startY + linkY) / 2;
+          svg += `<path d="M ${nodeX} ${startY} C ${nodeX} ${midY} ${targetX} ${midY} ${targetX} ${linkY}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
+        }
+        break;
+      }
+    }
+  }
+
   if (change.isImmutable) {
-    const d = Math.max(3, nodeSize);
+    const d = Math.max(4, nodeSize + 1);
     svg += `<polygon points="${nodeX},${cy - d} ${nodeX + d},${cy} ${nodeX},${cy + d} ${nodeX - d},${cy}" fill="${nodeFill}" stroke="${nodeStroke}" stroke-width="1.5"/>`;
   } else {
     svg += `<circle cx="${nodeX}" cy="${cy}" r="${nodeSize}" fill="${nodeFill}" stroke="${nodeStroke}" stroke-width="1.5"/>`;
@@ -508,6 +611,7 @@ function App() {
                   className={`expand-icon codicon ${hasFiles ? '' : 'hidden'} ${
                     isExpanded ? 'codicon-chevron-down' : 'codicon-chevron-right'
                   }`}
+                  style={graphInfo ? { marginLeft: -((graphInfo.maxColumns - graphInfo.nodeColumn - 1) * GRAPH_COL_WIDTH) } : undefined}
                 />
                 {hasDescription ? (
                   <span className="change-desc">{isWorkingCopy ? '@ ' : ''}{change.description}</span>
@@ -588,10 +692,39 @@ function App() {
                     if (localBookmarks.includes(localName) || localBookmarks.includes(`${localName}*`)) {
                       return null;
                     }
+                    // Check for PR info using the base bookmark name
+                    const pr = state.prInfo[localName];
+
+                    let badgeClass = 'badge remote';
+                    let tooltip = 'Remote only';
+                    if (pr) {
+                      if (pr.state === 'merged') {
+                        badgeClass = 'badge merged';
+                        tooltip = `PR #${pr.number} merged`;
+                      } else if (pr.state === 'open' || pr.state === 'draft') {
+                        badgeClass = pr.state === 'draft' ? 'badge pr-draft' : 'badge pr-open';
+                        tooltip = `PR #${pr.number} ${pr.state}`;
+                      } else if (pr.state === 'closed') {
+                        badgeClass = 'badge pr-closed';
+                        tooltip = `PR #${pr.number} closed`;
+                      }
+                    }
+
                     return (
-                      <span key={name} className="badge remote" title="Remote only">
+                      <span
+                        key={name}
+                        className={`${badgeClass}${pr?.url ? ' clickable' : ''}`}
+                        title={tooltip}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (pr?.url) {
+                            send('openUrl', { url: pr.url });
+                          }
+                        }}
+                      >
                         {name}
-                        <span className="codicon codicon-cloud badge-cloud-icon" title="Remote" />
+                        {pr ? <span className="codicon codicon-git-merge badge-pr-icon" title="Pull request" /> : null}
+                        {!pr ? <span className="codicon codicon-cloud badge-cloud-icon" title="Remote" /> : null}
                       </span>
                     );
                   })}

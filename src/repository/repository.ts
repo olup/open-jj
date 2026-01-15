@@ -263,12 +263,19 @@ export class Repository implements vscode.Disposable {
       return;
     }
 
-    // Get all tracked local bookmarks
-    const trackedBookmarks = this._bookmarks
-      .filter(b => !b.isRemote && b.isTracked)
+    // Get all tracked local bookmarks and remote-only bookmarks
+    // Remote-only bookmarks (no local counterpart) may also have PRs
+    const localTrackedNames = new Set(
+      this._bookmarks.filter(b => !b.isRemote && b.isTracked).map(b => b.name)
+    );
+    const remoteOnlyNames = this._bookmarks
+      .filter(b => b.isRemote && !localTrackedNames.has(b.name))
       .map(b => b.name);
 
+    const trackedBookmarks = [...localTrackedNames, ...remoteOnlyNames];
+
     console.log('[open-jj] Tracked bookmarks for PR fetch:', trackedBookmarks);
+    console.log('[open-jj] Remote-only bookmarks included:', remoteOnlyNames);
 
     if (trackedBookmarks.length === 0) {
       console.log('[open-jj] No tracked bookmarks, skipping PR fetch');

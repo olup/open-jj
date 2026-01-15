@@ -211,6 +211,7 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-left: 4px;
+  min-width: 100px;
 }
 
 .change-desc.placeholder {

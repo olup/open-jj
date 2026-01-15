@@ -2,7 +2,7 @@
   "name": "open-jj",
   "displayName": "OPEN JJ",
   "description": "Jujutsu (jj) version control integration for VS Code",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "publisher": "olup",
   "license": "MIT",
   "engines": {

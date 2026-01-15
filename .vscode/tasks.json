@@ -2,6 +2,19 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "build-all",
+      "type": "shell",
+      "command": "npm run build:webview && npm run compile",
+      "problemMatcher": "$tsc",
+      "presentation": {
+        "reveal": "silent"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
       "type": "npm",
       "script": "watch",
       "problemMatcher": "$tsc-watch",
@@ -12,30 +25,12 @@
       "dependsOn": [
         "npm: watch:webview"
       ],
-      "dependsOrder": "parallel",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      }
+      "dependsOrder": "parallel"
     },
     {
       "type": "npm",
       "script": "watch:webview",
-      "problemMatcher": [
-        {
-          "owner": "custom",
-          "pattern": [
-            {
-              "regexp": ".+"
-            }
-          ],
-          "background": {
-            "activeOnStart": true,
-            "beginsPattern": "vite v|building for production",
-            "endsPattern": "watching for file changes"
-          }
-        }
-      ],
+      "problemMatcher": [],
       "isBackground": true,
       "presentation": {
         "reveal": "never"
