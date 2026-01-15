@@ -68,7 +68,7 @@ function r1() {
   function dt(w, B) {
     return typeof w == "object" && w !== null && w.key != null ? _t("" + w.key) : B.toString(36);
   }
-  function Le(w, B, Te, Je, tt) {
+  function Me(w, B, Te, Je, tt) {
     var St = typeof w;
     (St === "undefined" || St === "boolean") && (w = null);
     var Lt = !1;
@@ -85,22 +85,22 @@ function r1() {
             Lt = !0;
         }
     }
-    if (Lt) return Lt = w, tt = tt(Lt), w = Je === "" ? "." + dt(Lt, 0) : Je, He(tt) ? (Te = "", w != null && (Te = w.replace(Ye, "$&/") + "/"), Le(tt, B, Te, "", function(Wt) {
+    if (Lt) return Lt = w, tt = tt(Lt), w = Je === "" ? "." + dt(Lt, 0) : Je, He(tt) ? (Te = "", w != null && (Te = w.replace(Ye, "$&/") + "/"), Me(tt, B, Te, "", function(Wt) {
       return Wt;
     })) : tt != null && (Xe(tt) && (tt = Pe(tt, Te + (!tt.key || Lt && Lt.key === tt.key ? "" : ("" + tt.key).replace(Ye, "$&/") + "/") + w)), B.push(tt)), 1;
     if (Lt = 0, Je = Je === "" ? "." : Je + ":", He(w)) for (var at = 0; at < w.length; at++) {
       St = w[at];
       var Dt = Je + dt(St, at);
-      Lt += Le(St, B, Te, Dt, tt);
+      Lt += Me(St, B, Te, Dt, tt);
     }
-    else if (Dt = k(w), typeof Dt == "function") for (w = Dt.call(w), at = 0; !(St = w.next()).done; ) St = St.value, Dt = Je + dt(St, at++), Lt += Le(St, B, Te, Dt, tt);
+    else if (Dt = k(w), typeof Dt == "function") for (w = Dt.call(w), at = 0; !(St = w.next()).done; ) St = St.value, Dt = Je + dt(St, at++), Lt += Me(St, B, Te, Dt, tt);
     else if (St === "object") throw B = String(w), Error("Objects are not valid as a React child (found: " + (B === "[object Object]" ? "object with keys {" + Object.keys(w).join(", ") + "}" : B) + "). If you meant to render a collection of children, use an array instead.");
     return Lt;
   }
   function kt(w, B, Te) {
     if (w == null) return w;
     var Je = [], tt = 0;
-    return Le(w, Je, "", "", function(St) {
+    return Me(w, Je, "", "", function(St) {
       return B.call(Te, St, tt++);
     }), Je;
   }
@@ -258,7 +258,7 @@ function a1() {
         var C = me.getCurrentStack;
         return C && (h += C() || ""), h;
       };
-      var _t = !1, Ye = !1, dt = !1, Le = !1, kt = !1, ae = {
+      var _t = !1, Ye = !1, dt = !1, Me = !1, kt = !1, ae = {
         ReactCurrentDispatcher: He,
         ReactCurrentBatchConfig: ut,
         ReactCurrentOwner: ee
@@ -885,7 +885,7 @@ Your code should look like:
       var R;
       R = Symbol.for("react.module.reference");
       function G(h) {
-        return !!(typeof h == "string" || typeof h == "function" || h === lt || h === Ie || kt || h === S || h === k || h === Q || Le || h === De || _t || Ye || dt || typeof h == "object" && h !== null && (h.$$typeof === Z || h.$$typeof === j || h.$$typeof === ge || h.$$typeof === ue || h.$$typeof === Ne || // This needs to include all possible module reference object
+        return !!(typeof h == "string" || typeof h == "function" || h === lt || h === Ie || kt || h === S || h === k || h === Q || Me || h === De || _t || Ye || dt || typeof h == "object" && h !== null && (h.$$typeof === Z || h.$$typeof === j || h.$$typeof === ge || h.$$typeof === ue || h.$$typeof === Ne || // This needs to include all possible module reference object
         // types supported by any Flight configuration anywhere since
         // we don't know which Flight build this will end up being used
         // with.
@@ -1563,7 +1563,7 @@ function l1() {
     function dt(R) {
       return R.displayName || "Context";
     }
-    function Le(R) {
+    function Me(R) {
       if (R == null)
         return null;
       if (typeof R.tag == "number" && ft("Received an unexpected object in getComponentNameFromType(). This is likely a bug in React. Please file an issue."), typeof R == "function")
@@ -1596,11 +1596,11 @@ function l1() {
             return Ye(R, R.render, "ForwardRef");
           case k:
             var pe = R.displayName || null;
-            return pe !== null ? pe : Le(R.type) || "Memo";
+            return pe !== null ? pe : Me(R.type) || "Memo";
           case Q: {
             var Ct = R, nt = Ct._payload, Tt = Ct._init;
             try {
-              return Le(Tt(nt));
+              return Me(Tt(nt));
             } catch {
               return null;
             }
@@ -1957,7 +1957,7 @@ function l1() {
     function Da() {
       {
         if (un.current) {
-          var R = Le(un.current.type);
+          var R = Me(un.current.type);
           if (R)
             return `
 
@@ -1992,7 +1992,7 @@ Check the top-level render call using <` + fe + ">.");
           return;
         Wl[fe] = !0;
         var pe = "";
-        R && R._owner && R._owner !== un.current && (pe = " It was passed a child from " + Le(R._owner.type) + "."), Vt(R), ft('Each child in a list should have a unique "key" prop.%s%s See https://reactjs.org/link/warning-keys for more information.', fe, pe), Vt(null);
+        R && R._owner && R._owner !== un.current && (pe = " It was passed a child from " + Me(R._owner.type) + "."), Vt(R), ft('Each child in a list should have a unique "key" prop.%s%s See https://reactjs.org/link/warning-keys for more information.', fe, pe), Vt(null);
       }
     }
     function Gl(R, G) {
@@ -2029,11 +2029,11 @@ Check the top-level render call using <` + fe + ">.");
         else
           return;
         if (fe) {
-          var pe = Le(G);
+          var pe = Me(G);
           $n(fe, R.props, "prop", pe, R);
         } else if (G.PropTypes !== void 0 && !va) {
           va = !0;
-          var Ct = Le(G);
+          var Ct = Me(G);
           ft("Component %s declared `PropTypes` instead of `propTypes`. Did you misspell the property assignment?", Ct || "Unknown");
         }
         typeof G.getDefaultProps == "function" && !G.getDefaultProps.isReactClassApproved && ft("getDefaultProps is only used on classic React.createClass definitions. Use a static property named `defaultProps` instead.");
@@ -2061,7 +2061,7 @@ Check the top-level render call using <` + fe + ">.");
           var wn = Mi();
           wn ? yt += wn : yt += Da();
           var on;
-          R === null ? on = "null" : Xn(R) ? on = "array" : R !== void 0 && R.$$typeof === F ? (on = "<" + (Le(R.type) || "Unknown") + " />", yt = " Did you accidentally export a JSX literal instead of a component?") : on = typeof R, ft("React.jsx: type is invalid -- expected a string (for built-in components) or a class/function (for composite components) but got: %s.%s", on, yt);
+          R === null ? on = "null" : Xn(R) ? on = "array" : R !== void 0 && R.$$typeof === F ? (on = "<" + (Me(R.type) || "Unknown") + " />", yt = " Did you accidentally export a JSX literal instead of a component?") : on = typeof R, ft("React.jsx: type is invalid -- expected a string (for built-in components) or a class/function (for composite components) but got: %s.%s", on, yt);
         }
         var dn = Jn(R, G, fe, Ct, nt);
         if (dn == null)
@@ -2080,7 +2080,7 @@ Check the top-level render call using <` + fe + ">.");
               Gl(Tr, R);
         }
         if (zn.call(G, "key")) {
-          var Bt = Le(R), mn = Object.keys(G).filter(function(Ai) {
+          var Bt = Me(R), mn = Object.keys(G).filter(function(Ai) {
             return Ai !== "key";
           }), ot = mn.length > 0 ? "{key: someKey, " + mn.join(": ..., ") + ": ...}" : "{key: someKey}";
           if (!ur[Bt + ot]) {
@@ -2108,7 +2108,7 @@ React keys must be passed directly to JSX without using spread:
 }
 var u1 = {};
 u1.NODE_ENV === "production" ? hE.exports = i1() : hE.exports = l1();
-var Me = hE.exports, mE = { exports: {} }, Wa = {}, Gm = { exports: {} }, pE = {};
+var Le = hE.exports, mE = { exports: {} }, Wa = {}, Gm = { exports: {} }, pE = {};
 /**
  * @license React
  * scheduler.production.min.js
@@ -2223,8 +2223,8 @@ function o1() {
       We(Ye);
     };
     else if (typeof MessageChannel < "u") {
-      var Le = new MessageChannel(), kt = Le.port2;
-      Le.port1.onmessage = Ye, dt = function() {
+      var Me = new MessageChannel(), kt = Me.port2;
+      Me.port1.onmessage = Ye, dt = function() {
         kt.postMessage(null);
       };
     } else dt = function() {
@@ -2386,7 +2386,7 @@ function s1() {
           return We.now() - ft;
         };
       }
-      var He = 1073741823, ut = -1, be = 250, ee = 5e3, me = 1e4, Pe = He, Xe = [], _t = [], Ye = 1, dt = null, Le = k, kt = !1, ae = !1, Ve = !1, $ = typeof setTimeout == "function" ? setTimeout : null, se = typeof clearTimeout == "function" ? clearTimeout : null, ie = typeof setImmediate < "u" ? setImmediate : null;
+      var He = 1073741823, ut = -1, be = 250, ee = 5e3, me = 1e4, Pe = He, Xe = [], _t = [], Ye = 1, dt = null, Me = k, kt = !1, ae = !1, Ve = !1, $ = typeof setTimeout == "function" ? setTimeout : null, se = typeof clearTimeout == "function" ? clearTimeout : null, ie = typeof setImmediate < "u" ? setImmediate : null;
       typeof navigator < "u" && navigator.scheduling !== void 0 && navigator.scheduling.isInputPending !== void 0 && navigator.scheduling.isInputPending.bind(navigator.scheduling);
       function w(le) {
         for (var je = ct(_t); je !== null; ) {
@@ -2410,12 +2410,12 @@ function s1() {
       }
       function Te(le, je) {
         ae = !1, Ve && (Ve = !1, Wr()), kt = !0;
-        var mt = Le;
+        var mt = Me;
         try {
           var Pt;
           if (!F) return Je(le, je);
         } finally {
-          dt = null, Le = mt, kt = !1;
+          dt = null, Me = mt, kt = !1;
         }
       }
       function Je(le, je) {
@@ -2423,7 +2423,7 @@ function s1() {
         for (w(mt), dt = ct(Xe); dt !== null && !(dt.expirationTime > mt && (!le || Ga())); ) {
           var Pt = dt.callback;
           if (typeof Pt == "function") {
-            dt.callback = null, Le = dt.priorityLevel;
+            dt.callback = null, Me = dt.priorityLevel;
             var sn = dt.expirationTime <= mt, cn = Pt(sn);
             mt = W.unstable_now(), typeof cn == "function" ? dt.callback = cn : dt === ct(Xe) && lt(Xe), w(mt);
           } else
@@ -2446,43 +2446,43 @@ function s1() {
           default:
             le = k;
         }
-        var mt = Le;
-        Le = le;
+        var mt = Me;
+        Me = le;
         try {
           return je();
         } finally {
-          Le = mt;
+          Me = mt;
         }
       }
       function St(le) {
         var je;
-        switch (Le) {
+        switch (Me) {
           case ue:
           case Ne:
           case k:
             je = k;
             break;
           default:
-            je = Le;
+            je = Me;
             break;
         }
-        var mt = Le;
-        Le = je;
+        var mt = Me;
+        Me = je;
         try {
           return le();
         } finally {
-          Le = mt;
+          Me = mt;
         }
       }
       function Lt(le) {
-        var je = Le;
+        var je = Me;
         return function() {
-          var mt = Le;
-          Le = je;
+          var mt = Me;
+          Me = je;
           try {
             return le.apply(this, arguments);
           } finally {
-            Le = mt;
+            Me = mt;
           }
         };
       }
@@ -2534,7 +2534,7 @@ function s1() {
         le.callback = null;
       }
       function ir() {
-        return Le;
+        return Me;
       }
       var Mn = !1, Cr = null, Bn = -1, zn = ye, da = -1;
       function Ga() {
@@ -2704,7 +2704,7 @@ function c1() {
     var c = De.hasOwnProperty(r) ? De[r] : null;
     (c !== null ? c.type !== 0 : o || !(2 < r.length) || r[0] !== "o" && r[0] !== "O" || r[1] !== "n" && r[1] !== "N") && (j(r, l, c, o) && (l = null), o || c === null ? k(r) && (l === null ? n.removeAttribute(r) : n.setAttribute(r, "" + l)) : c.mustUseProperty ? n[c.propertyName] = l === null ? c.type === 3 ? !1 : "" : l : (r = c.attributeName, o = c.attributeNamespace, l === null ? n.removeAttribute(r) : (c = c.type, l = c === 3 || c === 4 && l === !0 ? "" : "" + l, o ? n.setAttributeNS(o, r, l) : n.setAttribute(r, l))));
   }
-  var He = W.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED, ut = Symbol.for("react.element"), be = Symbol.for("react.portal"), ee = Symbol.for("react.fragment"), me = Symbol.for("react.strict_mode"), Pe = Symbol.for("react.profiler"), Xe = Symbol.for("react.provider"), _t = Symbol.for("react.context"), Ye = Symbol.for("react.forward_ref"), dt = Symbol.for("react.suspense"), Le = Symbol.for("react.suspense_list"), kt = Symbol.for("react.memo"), ae = Symbol.for("react.lazy"), Ve = Symbol.for("react.offscreen"), $ = Symbol.iterator;
+  var He = W.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED, ut = Symbol.for("react.element"), be = Symbol.for("react.portal"), ee = Symbol.for("react.fragment"), me = Symbol.for("react.strict_mode"), Pe = Symbol.for("react.profiler"), Xe = Symbol.for("react.provider"), _t = Symbol.for("react.context"), Ye = Symbol.for("react.forward_ref"), dt = Symbol.for("react.suspense"), Me = Symbol.for("react.suspense_list"), kt = Symbol.for("react.memo"), ae = Symbol.for("react.lazy"), Ve = Symbol.for("react.offscreen"), $ = Symbol.iterator;
   function se(n) {
     return n === null || typeof n != "object" ? null : (n = $ && n[$] || n["@@iterator"], typeof n == "function" ? n : null);
   }
@@ -2812,7 +2812,7 @@ function c1() {
         return "StrictMode";
       case dt:
         return "Suspense";
-      case Le:
+      case Me:
         return "SuspenseList";
     }
     if (typeof n == "object") switch (n.$$typeof) {
@@ -7464,8 +7464,8 @@ Error generating stack: ` + d.message + `
         return n = Pa(12, l, r, c | 2), n.elementType = Pe, n.lanes = d, n;
       case dt:
         return n = Pa(13, l, r, c), n.elementType = dt, n.lanes = d, n;
-      case Le:
-        return n = Pa(19, l, r, c), n.elementType = Le, n.lanes = d, n;
+      case Me:
+        return n = Pa(19, l, r, c), n.elementType = Me, n.lanes = d, n;
       case Ve:
         return xo(l, c, d, r);
       default:
@@ -7811,7 +7811,7 @@ function f1() {
         s.unshift("Warning: " + t), Function.prototype.apply.call(console[e], console, s);
       }
     }
-    var ge = 0, ue = 1, Ne = 2, k = 3, Q = 4, j = 5, Z = 6, De = 7, ht = 8, We = 9, ft = 10, He = 11, ut = 12, be = 13, ee = 14, me = 15, Pe = 16, Xe = 17, _t = 18, Ye = 19, dt = 21, Le = 22, kt = 23, ae = 24, Ve = 25, $ = !0, se = !1, ie = !1, w = !1, B = !1, Te = !0, Je = !0, tt = !0, St = !0, Lt = /* @__PURE__ */ new Set(), at = {}, Dt = {};
+    var ge = 0, ue = 1, Ne = 2, k = 3, Q = 4, j = 5, Z = 6, De = 7, ht = 8, We = 9, ft = 10, He = 11, ut = 12, be = 13, ee = 14, me = 15, Pe = 16, Xe = 17, _t = 18, Ye = 19, dt = 21, Me = 22, kt = 23, ae = 24, Ve = 25, $ = !0, se = !1, ie = !1, w = !1, B = !1, Te = !0, Je = !0, tt = !0, St = !0, Lt = /* @__PURE__ */ new Set(), at = {}, Dt = {};
     function Wt(e, t) {
       Ln(e, t), Ln(e + "Capture", t);
     }
@@ -8674,7 +8674,7 @@ Error generating stack: ` + i.message + `
           return zt(a);
         case ht:
           return a === ci ? "StrictMode" : "Mode";
-        case Le:
+        case Me:
           return "Offscreen";
         case ut:
           return "Profiler";
@@ -17767,7 +17767,7 @@ Check the render method of \`` + i + "`.");
             break;
           return null;
         }
-        case Le:
+        case Me:
         case kt:
           return t.lanes = Y, mC(e, t, a);
       }
@@ -17856,7 +17856,7 @@ Check the render method of \`` + i + "`.");
           return wC(e, t, a);
         case dt:
           break;
-        case Le:
+        case Me:
           return mC(e, t, a);
       }
       throw new Error("Unknown unit of work tag (" + t.tag + "). This error is likely caused by a bug in React. Please file an issue.");
@@ -18121,7 +18121,7 @@ Check the render method of \`` + i + "`.");
         }
         case dt:
           break;
-        case Le:
+        case Me:
         case kt: {
           $S(t);
           var ju = t.memoizedState, qf = ju !== null;
@@ -18172,7 +18172,7 @@ Check the render method of \`` + i + "`.");
         case ft:
           var v = t.type._context;
           return dg(v, t), null;
-        case Le:
+        case Me:
         case kt:
           return $S(t), null;
         case ae:
@@ -18209,7 +18209,7 @@ Check the render method of \`` + i + "`.");
           var u = t.type._context;
           dg(u, t);
           break;
-        case Le:
+        case Me:
         case kt:
           $S(t);
           break;
@@ -18535,7 +18535,7 @@ Learn more about data fetching with Hooks: https://reactjs.org/link/hooks-data-f
           case Ye:
           case Xe:
           case dt:
-          case Le:
+          case Me:
           case kt:
           case Ve:
             break;
@@ -18590,7 +18590,7 @@ Learn more about data fetching with Hooks: https://reactjs.org/link/hooks-data-f
             } catch (f) {
               vn(e, e.return, f);
             }
-        } else if (!((i.tag === Le || i.tag === kt) && i.memoizedState !== null && i !== e)) {
+        } else if (!((i.tag === Me || i.tag === kt) && i.memoizedState !== null && i !== e)) {
           if (i.child !== null) {
             i.child.return = i, i = i.child;
             continue;
@@ -18809,7 +18809,7 @@ Learn more about data fetching with Hooks: https://reactjs.org/link/hooks-data-f
           jo(e, t, a);
           return;
         }
-        case Le: {
+        case Me: {
           if (
             // TODO: Remove this dead flag
             a.mode & Rt
@@ -18988,7 +18988,7 @@ Learn more about data fetching with Hooks: https://reactjs.org/link/hooks-data-f
           }
           return;
         }
-        case Le: {
+        case Me: {
           var bt = i !== null && i.memoizedState !== null;
           if (
             // TODO: Remove this dead flag
@@ -19039,7 +19039,7 @@ Learn more about data fetching with Hooks: https://reactjs.org/link/hooks-data-f
     function WC(e, t, a) {
       for (var i = (e.mode & Rt) !== Ae; ke !== null; ) {
         var u = ke, s = u.child;
-        if (u.tag === Le && i) {
+        if (u.tag === Me && i) {
           var f = u.memoizedState !== null, p = f || Dm;
           if (p) {
             OS(e, t, a);
@@ -19114,7 +19114,7 @@ Learn more about data fetching with Hooks: https://reactjs.org/link/hooks-data-f
             Yf(t, t.return);
             break;
           }
-          case Le: {
+          case Me: {
             var u = t.memoizedState !== null;
             if (u) {
               QC(e);
@@ -19144,7 +19144,7 @@ Learn more about data fetching with Hooks: https://reactjs.org/link/hooks-data-f
     function c_(e) {
       for (; ke !== null; ) {
         var t = ke, a = t.child;
-        if (t.tag === Le) {
+        if (t.tag === Me) {
           var i = t.memoizedState !== null;
           if (i) {
             GC(e);
@@ -20539,7 +20539,7 @@ Check the render method of \`` + y + "`.");
       return u.elementType = pe, u.lanes = a, u;
     }
     function RR(e, t, a, i) {
-      var u = ui(Le, e, i, t);
+      var u = ui(Me, e, i, t);
       u.elementType = wn, u.lanes = a;
       var s = {
         isHidden: !1
@@ -21415,16 +21415,16 @@ function g1() {
     const j = F.current;
     F.current = null, j && (j.type === "change" ? j.changeId !== Q && hn("rebaseChange", { sourceChangeId: j.changeId, targetChangeId: Q }) : j.type === "bookmark" ? hn("moveBookmark", { bookmarkName: j.bookmarkName, targetChangeId: Q }) : j.type === "file" && j.fromChangeId !== Q && hn("moveFile", { filePath: j.filePath, fromChangeId: j.fromChangeId, targetChangeId: Q }));
   };
-  return W.hasRepository ? /* @__PURE__ */ Me.jsxs("div", { className: "log", children: [
-    W.changes.length === 0 ? /* @__PURE__ */ Me.jsx("div", { className: "empty", children: "No changes found" }) : W.changes.map((k, Q) => {
+  return W.hasRepository ? /* @__PURE__ */ Le.jsxs("div", { className: "log", children: [
+    W.changes.length === 0 ? /* @__PURE__ */ Le.jsx("div", { className: "empty", children: "No changes found" }) : W.changes.map((k, Q) => {
       const j = ye.has(k.commitId), Z = k.isWorkingCopy, De = Z ? W.workingCopyFiles : W.changeFiles[k.commitId] ?? [], ht = De.length > 0 || !k.isEmpty, We = W.graphInfo[k.commitId], ft = m1(k, Q === 0, Q === W.changes.length - 1, We), He = k.description && k.description !== "(no description)", ut = k.bookmarks.filter((ee) => !ee.includes("@")), be = k.bookmarks.filter((ee) => ee.includes("@"));
-      return /* @__PURE__ */ Me.jsxs(
+      return /* @__PURE__ */ Le.jsxs(
         "div",
         {
           className: `change ${Z ? "working-copy" : ""} ${k.hasConflict ? "conflict" : ""}`,
           "data-change-id": k.changeId,
           children: [
-            /* @__PURE__ */ Me.jsxs(
+            /* @__PURE__ */ Le.jsxs(
               "div",
               {
                 className: "change-header",
@@ -21445,7 +21445,7 @@ function g1() {
                   ee.currentTarget.classList.remove("drag-over"), Ne(ee, k.changeId);
                 },
                 children: [
-                  /* @__PURE__ */ Me.jsx(
+                  /* @__PURE__ */ Le.jsx(
                     "span",
                     {
                       className: "graph-node",
@@ -21458,19 +21458,19 @@ function g1() {
                       dangerouslySetInnerHTML: { __html: ft }
                     }
                   ),
-                  /* @__PURE__ */ Me.jsx(
+                  /* @__PURE__ */ Le.jsx(
                     "span",
                     {
                       className: `expand-icon codicon ${ht ? "" : "hidden"} ${j ? "codicon-chevron-down" : "codicon-chevron-right"}`,
                       style: We ? { marginLeft: -((We.maxColumns - We.nodeColumn - 1) * gE) } : void 0
                     }
                   ),
-                  He ? /* @__PURE__ */ Me.jsxs("span", { className: "change-desc", children: [
+                  He ? /* @__PURE__ */ Le.jsxs("span", { className: "change-desc", children: [
                     Z ? "@ " : "",
                     k.description
-                  ] }) : /* @__PURE__ */ Me.jsxs(Me.Fragment, { children: [
-                    /* @__PURE__ */ Me.jsx("span", { className: "change-desc placeholder", children: Z ? "@ " : "" }),
-                    /* @__PURE__ */ Me.jsx(
+                  ] }) : /* @__PURE__ */ Le.jsxs(Le.Fragment, { children: [
+                    /* @__PURE__ */ Le.jsx("span", { className: "change-desc placeholder", children: Z ? "@ " : "" }),
+                    /* @__PURE__ */ Le.jsx(
                       "button",
                       {
                         className: "describe-btn",
@@ -21481,20 +21481,20 @@ function g1() {
                       }
                     )
                   ] }),
-                  /* @__PURE__ */ Me.jsxs("span", { className: "bookmarks", onClick: (ee) => {
+                  /* @__PURE__ */ Le.jsxs("span", { className: "bookmarks", onClick: (ee) => {
                     ee.stopPropagation(), hn("manageBookmarks", { changeId: k.changeId });
                   }, children: [
                     ut.map((ee) => {
                       const me = ee.endsWith("*"), Pe = me ? ee.slice(0, -1) : ee, Xe = W.bookmarks.find((ae) => ae.name === Pe && !ae.isRemote), _t = (Xe == null ? void 0 : Xe.isTracked) ?? !1, Ye = W.prInfo[Pe];
-                      let dt = "badge local", Le = "Local bookmark (not pushed)";
-                      Ye ? Ye.state === "merged" ? (dt = "badge merged", Le = `PR #${Ye.number} merged`) : Ye.state === "open" || Ye.state === "draft" ? (dt = Ye.state === "draft" ? "badge pr-draft" : "badge pr-open", Le = `PR #${Ye.number} ${Ye.state}`) : Ye.state === "closed" && (dt = "badge pr-closed", Le = `PR #${Ye.number} closed`) : _t && (dt = "badge tracked", Le = "Pushed to remote (no PR)");
+                      let dt = "badge local", Me = "Local bookmark (not pushed)";
+                      Ye ? Ye.state === "merged" ? (dt = "badge merged", Me = `PR #${Ye.number} merged`) : Ye.state === "open" || Ye.state === "draft" ? (dt = Ye.state === "draft" ? "badge pr-draft" : "badge pr-open", Me = `PR #${Ye.number} ${Ye.state}`) : Ye.state === "closed" && (dt = "badge pr-closed", Me = `PR #${Ye.number} closed`) : _t && (dt = "badge tracked", Me = "Pushed to remote (no PR)");
                       const kt = me || (Xe == null ? void 0 : Xe.isConflicted);
-                      return kt && (Le += " - DIVERGED from remote"), /* @__PURE__ */ Me.jsxs(
+                      return kt && (Me += " - DIVERGED from remote"), /* @__PURE__ */ Le.jsxs(
                         "span",
                         {
                           className: `${dt}${Ye != null && Ye.url ? " clickable" : ""}`,
                           draggable: !0,
-                          title: Le,
+                          title: Me,
                           onDragStart: (ae) => ue(ae, { type: "bookmark", bookmarkName: Pe, fromChangeId: k.changeId }),
                           onContextMenu: (ae) => S(ae, Pe, k.changeId, _t),
                           onClick: (ae) => {
@@ -21502,9 +21502,9 @@ function g1() {
                           },
                           children: [
                             Pe,
-                            Ye ? /* @__PURE__ */ Me.jsx("span", { className: "codicon codicon-git-merge badge-pr-icon", title: "Pull request" }) : null,
-                            _t ? /* @__PURE__ */ Me.jsx("span", { className: "codicon codicon-cloud badge-cloud-icon", title: "Synced" }) : null,
-                            kt ? /* @__PURE__ */ Me.jsx("span", { className: "codicon codicon-cloud badge-cloud-icon diverged", title: "Diverged" }) : null
+                            Ye ? /* @__PURE__ */ Le.jsx("span", { className: "codicon codicon-git-merge badge-pr-icon", title: "Pull request" }) : null,
+                            _t ? /* @__PURE__ */ Le.jsx("span", { className: "codicon codicon-cloud badge-cloud-icon", title: "Synced" }) : null,
+                            kt ? /* @__PURE__ */ Le.jsx("span", { className: "codicon codicon-cloud badge-cloud-icon diverged", title: "Diverged" }) : null
                           ]
                         },
                         ee
@@ -21516,7 +21516,7 @@ function g1() {
                         return null;
                       const Pe = W.prInfo[me];
                       let Xe = "badge remote", _t = "Remote only";
-                      return Pe && (Pe.state === "merged" ? (Xe = "badge merged", _t = `PR #${Pe.number} merged`) : Pe.state === "open" || Pe.state === "draft" ? (Xe = Pe.state === "draft" ? "badge pr-draft" : "badge pr-open", _t = `PR #${Pe.number} ${Pe.state}`) : Pe.state === "closed" && (Xe = "badge pr-closed", _t = `PR #${Pe.number} closed`)), /* @__PURE__ */ Me.jsxs(
+                      return Pe && (Pe.state === "merged" ? (Xe = "badge merged", _t = `PR #${Pe.number} merged`) : Pe.state === "open" || Pe.state === "draft" ? (Xe = Pe.state === "draft" ? "badge pr-draft" : "badge pr-open", _t = `PR #${Pe.number} ${Pe.state}`) : Pe.state === "closed" && (Xe = "badge pr-closed", _t = `PR #${Pe.number} closed`)), /* @__PURE__ */ Le.jsxs(
                         "span",
                         {
                           className: `${Xe}${Pe != null && Pe.url ? " clickable" : ""}`,
@@ -21526,31 +21526,31 @@ function g1() {
                           },
                           children: [
                             ee,
-                            Pe ? /* @__PURE__ */ Me.jsx("span", { className: "codicon codicon-git-merge badge-pr-icon", title: "Pull request" }) : null,
-                            Pe ? null : /* @__PURE__ */ Me.jsx("span", { className: "codicon codicon-cloud badge-cloud-icon", title: "Remote" })
+                            Pe ? /* @__PURE__ */ Le.jsx("span", { className: "codicon codicon-git-merge badge-pr-icon", title: "Pull request" }) : null,
+                            Pe ? null : /* @__PURE__ */ Le.jsx("span", { className: "codicon codicon-cloud badge-cloud-icon", title: "Remote" })
                           ]
                         },
                         ee
                       );
                     })
                   ] }),
-                  /* @__PURE__ */ Me.jsx("span", { className: "change-actions", children: /* @__PURE__ */ Me.jsx(
+                  /* @__PURE__ */ Le.jsx("span", { className: "change-actions", children: /* @__PURE__ */ Le.jsx(
                     "button",
                     {
                       className: "icon-button small",
                       onClick: (ee) => {
                         ee.stopPropagation(), hn("newChangeFrom", { changeId: k.changeId });
                       },
-                      children: /* @__PURE__ */ Me.jsx("span", { className: "codicon codicon-add" })
+                      children: /* @__PURE__ */ Le.jsx("span", { className: "codicon codicon-add" })
                     }
                   ) })
                 ]
               }
             ),
-            j && De.length > 0 ? /* @__PURE__ */ Me.jsx("div", { className: "files", children: We ? (() => {
+            j && De.length > 0 ? /* @__PURE__ */ Le.jsx("div", { className: "files", children: We ? (() => {
               const ee = y1(We);
-              return /* @__PURE__ */ Me.jsxs(Me.Fragment, { children: [
-                /* @__PURE__ */ Me.jsx(
+              return /* @__PURE__ */ Le.jsxs(Le.Fragment, { children: [
+                /* @__PURE__ */ Le.jsx(
                   "div",
                   {
                     className: "files-gutter",
@@ -21558,7 +21558,7 @@ function g1() {
                     dangerouslySetInnerHTML: { __html: ee.svg }
                   }
                 ),
-                /* @__PURE__ */ Me.jsx("div", { className: "files-list", style: { marginLeft: `${ee.width + 6}px` }, children: De.map((me) => /* @__PURE__ */ Me.jsxs(
+                /* @__PURE__ */ Le.jsx("div", { className: "files-list", style: { marginLeft: `${ee.width + 6}px` }, children: De.map((me) => /* @__PURE__ */ Le.jsxs(
                   "div",
                   {
                     className: "file",
@@ -21566,8 +21566,8 @@ function g1() {
                     title: "Drag to move to another change",
                     onDragStart: (Pe) => ue(Pe, { type: "file", filePath: me.path, fromChangeId: k.changeId }),
                     children: [
-                      /* @__PURE__ */ Me.jsx("span", { className: `file-icon ${me.status}`, children: /* @__PURE__ */ Me.jsx("span", { className: `codicon ${dT(me.status)}` }) }),
-                      /* @__PURE__ */ Me.jsx(
+                      /* @__PURE__ */ Le.jsx("span", { className: `file-icon ${me.status}`, children: /* @__PURE__ */ Le.jsx("span", { className: `codicon ${dT(me.status)}` }) }),
+                      /* @__PURE__ */ Le.jsx(
                         "span",
                         {
                           className: "file-path",
@@ -21577,7 +21577,7 @@ function g1() {
                           children: me.path
                         }
                       ),
-                      /* @__PURE__ */ Me.jsx(
+                      /* @__PURE__ */ Le.jsx(
                         "button",
                         {
                           className: "icon-button small",
@@ -21585,7 +21585,7 @@ function g1() {
                           onClick: (Pe) => {
                             Pe.stopPropagation(), hn("openFile", { path: me.path });
                           },
-                          children: /* @__PURE__ */ Me.jsx("span", { className: "codicon codicon-go-to-file" })
+                          children: /* @__PURE__ */ Le.jsx("span", { className: "codicon codicon-go-to-file" })
                         }
                       )
                     ]
@@ -21593,7 +21593,7 @@ function g1() {
                   me.path
                 )) })
               ] });
-            })() : /* @__PURE__ */ Me.jsx("div", { className: "files-list", children: De.map((ee) => /* @__PURE__ */ Me.jsxs(
+            })() : /* @__PURE__ */ Le.jsx("div", { className: "files-list", children: De.map((ee) => /* @__PURE__ */ Le.jsxs(
               "div",
               {
                 className: "file",
@@ -21601,8 +21601,8 @@ function g1() {
                 title: "Drag to move to another change",
                 onDragStart: (me) => ue(me, { type: "file", filePath: ee.path, fromChangeId: k.changeId }),
                 children: [
-                  /* @__PURE__ */ Me.jsx("span", { className: `file-icon ${ee.status}`, children: /* @__PURE__ */ Me.jsx("span", { className: `codicon ${dT(ee.status)}` }) }),
-                  /* @__PURE__ */ Me.jsx(
+                  /* @__PURE__ */ Le.jsx("span", { className: `file-icon ${ee.status}`, children: /* @__PURE__ */ Le.jsx("span", { className: `codicon ${dT(ee.status)}` }) }),
+                  /* @__PURE__ */ Le.jsx(
                     "span",
                     {
                       className: "file-path",
@@ -21612,7 +21612,7 @@ function g1() {
                       children: ee.path
                     }
                   ),
-                  /* @__PURE__ */ Me.jsx(
+                  /* @__PURE__ */ Le.jsx(
                     "button",
                     {
                       className: "icon-button small",
@@ -21620,7 +21620,7 @@ function g1() {
                       onClick: (me) => {
                         me.stopPropagation(), hn("openFile", { path: ee.path });
                       },
-                      children: /* @__PURE__ */ Me.jsx("span", { className: "codicon codicon-go-to-file" })
+                      children: /* @__PURE__ */ Le.jsx("span", { className: "codicon codicon-go-to-file" })
                     }
                   )
                 ]
@@ -21632,36 +21632,37 @@ function g1() {
         k.commitId
       );
     }),
-    /* @__PURE__ */ Me.jsxs(
+    /* @__PURE__ */ Le.jsxs(
       "div",
       {
         id: "context-menu",
         className: "context-menu",
         onClick: ge,
         children: [
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-item menu-change", "data-action": "copy-change-id", children: "Copy Change ID" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-separator menu-change" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-item menu-change", "data-action": "new-change-from", children: "New Change" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-item menu-change", "data-action": "describe-change", children: "Describe Change" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-item menu-change", "data-action": "manage-bookmarks", children: "Manage Bookmarks" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-item menu-change", "data-action": "edit-change", children: "Edit Change" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-item menu-change", "data-action": "squash-change", children: "Squash into Parent" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-separator menu-change" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-item danger menu-change", "data-action": "abandon-change", children: "Abandon Change" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-separator menu-bookmark" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-item menu-bookmark", "data-action": "copy-bookmark-name", children: "Copy Bookmark Name" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-item menu-bookmark", "data-action": "create-pull-request", children: "Create Pull Request" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-item menu-bookmark", "data-action": "push-bookmark", children: "Push to Remote" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-item menu-bookmark", "data-action": "push-and-create-pr", children: "Push and Create PR" }),
-          /* @__PURE__ */ Me.jsx("div", { className: "context-menu-item danger menu-bookmark", "data-action": "delete-bookmark", children: "Delete Bookmark" })
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-item menu-change", "data-action": "edit-change", children: "Edit Change" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-separator menu-change" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-item menu-change", "data-action": "new-change-from", children: "New Change" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-item menu-change", "data-action": "describe-change", children: "Describe Change" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-item menu-change", "data-action": "manage-bookmarks", children: "Manage Bookmarks" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-item menu-change", "data-action": "squash-change", children: "Squash into Parent" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-item menu-change", "data-action": "copy-change-id", children: "Copy Change ID" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-separator menu-change" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-item danger menu-change", "data-action": "abandon-change", children: "Abandon Change" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-item menu-bookmark", "data-action": "push-bookmark", children: "Push to Remote" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-separator menu-bookmark" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-item menu-bookmark", "data-action": "create-pull-request", children: "Create Pull Request" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-item menu-bookmark", "data-action": "push-and-create-pr", children: "Push and Create PR" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-item menu-bookmark", "data-action": "copy-bookmark-name", children: "Copy Bookmark Name" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-separator menu-bookmark" }),
+          /* @__PURE__ */ Le.jsx("div", { className: "context-menu-item danger menu-bookmark", "data-action": "delete-bookmark", children: "Delete Bookmark" })
         ]
       }
     )
-  ] }) : /* @__PURE__ */ Me.jsxs("div", { className: "empty", children: [
-    /* @__PURE__ */ Me.jsx("div", { children: "No JJ repository found." }),
-    /* @__PURE__ */ Me.jsxs("div", { style: { marginTop: "8px" }, children: [
-      /* @__PURE__ */ Me.jsx("button", { className: "describe-btn", onClick: () => hn("init"), children: "Initialize Repository" }),
-      /* @__PURE__ */ Me.jsx("button", { className: "describe-btn", style: { marginLeft: "8px" }, onClick: () => hn("initWithGit"), children: "Initialize with Git Backend" })
+  ] }) : /* @__PURE__ */ Le.jsxs("div", { className: "empty", children: [
+    /* @__PURE__ */ Le.jsx("div", { children: "No JJ repository found." }),
+    /* @__PURE__ */ Le.jsxs("div", { style: { marginTop: "8px" }, children: [
+      /* @__PURE__ */ Le.jsx("button", { className: "describe-btn", onClick: () => hn("init"), children: "Initialize Repository" }),
+      /* @__PURE__ */ Le.jsx("button", { className: "describe-btn", style: { marginLeft: "8px" }, onClick: () => hn("initWithGit"), children: "Initialize with Git Backend" })
     ] })
   ] });
 }
@@ -21686,5 +21687,5 @@ function dT(W) {
 const mT = document.getElementById("root");
 if (!mT)
   throw new Error("Missing root element");
-yE(mT).render(/* @__PURE__ */ Me.jsx(g1, {}));
+yE(mT).render(/* @__PURE__ */ Le.jsx(g1, {}));
 //# sourceMappingURL=webview.js.map

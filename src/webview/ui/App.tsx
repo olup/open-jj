@@ -839,20 +839,21 @@ function App() {
         className="context-menu"
         onClick={handleMenuClick}
       >
-        <div className="context-menu-item menu-change" data-action="copy-change-id">Copy Change ID</div>
+        <div className="context-menu-item menu-change" data-action="edit-change">Edit Change</div>
         <div className="context-menu-separator menu-change"></div>
         <div className="context-menu-item menu-change" data-action="new-change-from">New Change</div>
         <div className="context-menu-item menu-change" data-action="describe-change">Describe Change</div>
         <div className="context-menu-item menu-change" data-action="manage-bookmarks">Manage Bookmarks</div>
-        <div className="context-menu-item menu-change" data-action="edit-change">Edit Change</div>
         <div className="context-menu-item menu-change" data-action="squash-change">Squash into Parent</div>
+        <div className="context-menu-item menu-change" data-action="copy-change-id">Copy Change ID</div>
         <div className="context-menu-separator menu-change"></div>
         <div className="context-menu-item danger menu-change" data-action="abandon-change">Abandon Change</div>
-        <div className="context-menu-separator menu-bookmark"></div>
-        <div className="context-menu-item menu-bookmark" data-action="copy-bookmark-name">Copy Bookmark Name</div>
-        <div className="context-menu-item menu-bookmark" data-action="create-pull-request">Create Pull Request</div>
         <div className="context-menu-item menu-bookmark" data-action="push-bookmark">Push to Remote</div>
+        <div className="context-menu-separator menu-bookmark"></div>
+        <div className="context-menu-item menu-bookmark" data-action="create-pull-request">Create Pull Request</div>
         <div className="context-menu-item menu-bookmark" data-action="push-and-create-pr">Push and Create PR</div>
+        <div className="context-menu-item menu-bookmark" data-action="copy-bookmark-name">Copy Bookmark Name</div>
+        <div className="context-menu-separator menu-bookmark"></div>
         <div className="context-menu-item danger menu-bookmark" data-action="delete-bookmark">Delete Bookmark</div>
       </div>
     </div>

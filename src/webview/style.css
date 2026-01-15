@@ -233,10 +233,14 @@ body {
 }
 
 .change-actions {
-  display: flex;
+  display: none;
   gap: 2px;
   margin-left: auto;
   padding-left: 8px;
+}
+
+.change-header:hover .change-actions {
+  display: flex;
 }
 
 .bookmarks {
