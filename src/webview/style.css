@@ -266,10 +266,11 @@ body {
   flex-shrink: 0;
 }
 
-/* Local: gray - not pushed yet */
+/* Local: not pushed yet, more visible than default badge but less than remote */
 .badge.local {
   background: var(--vscode-badge-background);
   color: var(--vscode-badge-foreground);
+  border: 1px solid var(--vscode-descriptionForeground);
 }
 
 /* Tracked: blue - pushed to remote but no PR */

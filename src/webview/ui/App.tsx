@@ -147,10 +147,12 @@ const LinkLine = {
 
 function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphInfo?: GraphInfo): string {
   const colWidth = GRAPH_COL_WIDTH;
-  const height = 28;
+  const svgHeight = 42;
   const nodeSize = 4;
-  const cy = height / 2;
-  const linkY = height;
+  const cy = svgHeight / 2; // Node centered in full SVG height
+  const linkY = svgHeight; // Where straight vertical lines end
+  const curveEndY = svgHeight; // Where curves can extend to
+  const r = 5; // Corner radius for orthogonal curves
 
   const nodeColumn = graphInfo?.nodeColumn ?? 0;
   const maxColumns = graphInfo?.maxColumns ?? 1;
@@ -169,7 +171,7 @@ function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphI
       ? 'var(--vscode-gitDecoration-conflictingResourceForeground)'
       : 'var(--vscode-editor-background)';
 
-  let svg = `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">`;
+  let svg = `<svg width="${width}" height="${svgHeight}" viewBox="0 0 ${width} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">`;
 
   const preNodeLine = graphInfo?.preNodeLine ?? [];
   const postNodeLine = graphInfo?.postNodeLine ?? [];
@@ -215,25 +217,37 @@ function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphI
       continue;
     }
     if (postNodeLine[col] !== undefined && postNodeLine[col] !== 0) {
-      svg += `<line x1="${x}" y1="${cy}" x2="${x}" y2="${height}" stroke="${lineColor}" stroke-width="1"/>`;
+      svg += `<line x1="${x}" y1="${cy}" x2="${x}" y2="${linkY}" stroke="${lineColor}" stroke-width="1"/>`;
     }
   }
 
   // Draw curves from parentColumns (for multi-parent merges)
+  // Using orthogonal paths with rounded corners, extending into overflow area
   for (const parentCol of parentColumns) {
     if (parentCol === nodeColumn) {
       continue;
     }
     const parentX = parentCol * colWidth + colWidth / 2;
     const dashed = dashedParentColumns.has(parentCol) ? ' stroke-dasharray="3 3"' : '';
-    const edgeOffset = Math.min(nodeSize + 1, 5);
-    const startY = linkY > cy ? cy + edgeOffset : cy - edgeOffset;
-    const midY = (startY + linkY) / 2;
-    svg += `<path d="M ${nodeX} ${startY} C ${nodeX} ${midY} ${parentX} ${midY} ${parentX} ${linkY}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
+    const startY = cy + nodeSize + 1;
+    const horizY = curveEndY - r; // Horizontal segment near bottom of overflow area
+    const goingRight = parentX > nodeX;
+    const dir = goingRight ? 1 : -1;
+
+    // Orthogonal path: down -> rounded corner -> horizontal -> rounded corner -> down
+    const path = [
+      `M ${nodeX} ${startY}`,
+      `L ${nodeX} ${horizY - r}`,
+      `A ${r} ${r} 0 0 ${goingRight ? 0 : 1} ${nodeX + dir * r} ${horizY}`,
+      `L ${parentX - dir * r} ${horizY}`,
+      `A ${r} ${r} 0 0 ${goingRight ? 1 : 0} ${parentX} ${horizY + r}`,
+      `L ${parentX} ${curveEndY}`,
+    ].join(' ');
+    svg += `<path d="${path}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
   }
 
   // Draw curves from linkLine (for fork/merge patterns after column swap)
-  // Check if nodeColumn has RIGHT_FORK and find the corresponding LEFT_MERGE column
+  // Using orthogonal paths with rounded corners
   const nodeFlags = linkLine[nodeColumn] ?? 0;
   const hasRightFork = (nodeFlags & (LinkLine.RIGHT_FORK_PARENT | LinkLine.RIGHT_FORK_ANCESTOR)) !== 0;
   if (hasRightFork) {
@@ -244,19 +258,32 @@ function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphI
       if (hasLeftMerge) {
         const targetX = col * colWidth + colWidth / 2;
         const dashed = isDashedColumn(col) ? ' stroke-dasharray="3 3"' : '';
-        // If fromNode, curve goes from top-right to bottom-left (branching out to parent)
-        // Otherwise, curve goes from node down to bottom-right (merging in from child)
         if (isFromNode) {
-          // Branching out: middle of right column to bottom of left column (node column)
+          // Branching out from right column down to node column (going left)
           const startY = cy;
-          const endY = linkY;
-          const midY = (startY + endY) / 2;
-          svg += `<path d="M ${targetX} ${startY} C ${targetX} ${midY} ${nodeX} ${midY} ${nodeX} ${endY}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
+          const horizY = curveEndY - r;
+          const path = [
+            `M ${targetX} ${startY}`,
+            `L ${targetX} ${horizY - r}`,
+            `A ${r} ${r} 0 0 1 ${targetX - r} ${horizY}`,
+            `L ${nodeX + r} ${horizY}`,
+            `A ${r} ${r} 0 0 0 ${nodeX} ${horizY + r}`,
+            `L ${nodeX} ${curveEndY}`,
+          ].join(' ');
+          svg += `<path d="${path}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
         } else {
-          const edgeOffset = Math.min(nodeSize + 1, 5);
-          const startY = cy + edgeOffset;
-          const midY = (startY + linkY) / 2;
-          svg += `<path d="M ${nodeX} ${startY} C ${nodeX} ${midY} ${targetX} ${midY} ${targetX} ${linkY}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
+          // From node going right to target column
+          const startY = cy + nodeSize + 1;
+          const horizY = curveEndY - r;
+          const path = [
+            `M ${nodeX} ${startY}`,
+            `L ${nodeX} ${horizY - r}`,
+            `A ${r} ${r} 0 0 0 ${nodeX + r} ${horizY}`,
+            `L ${targetX - r} ${horizY}`,
+            `A ${r} ${r} 0 0 1 ${targetX} ${horizY + r}`,
+            `L ${targetX} ${curveEndY}`,
+          ].join(' ');
+          svg += `<path d="${path}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
         }
         break;
       }
@@ -273,19 +300,32 @@ function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphI
       if (hasRightMerge) {
         const targetX = col * colWidth + colWidth / 2;
         const dashed = isDashedColumn(col) ? ' stroke-dasharray="3 3"' : '';
-        // If fromNode, curve goes from top-left to bottom-right (branching out to parent)
-        // Otherwise, curve goes from node down to bottom-left (merging in from child)
         if (isFromNode) {
-          // Branching out: middle of left column to bottom of right column (node column)
+          // Branching out from left column down to node column (going right)
           const startY = cy;
-          const endY = linkY;
-          const midY = (startY + endY) / 2;
-          svg += `<path d="M ${targetX} ${startY} C ${targetX} ${midY} ${nodeX} ${midY} ${nodeX} ${endY}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
+          const horizY = curveEndY - r;
+          const path = [
+            `M ${targetX} ${startY}`,
+            `L ${targetX} ${horizY - r}`,
+            `A ${r} ${r} 0 0 0 ${targetX + r} ${horizY}`,
+            `L ${nodeX - r} ${horizY}`,
+            `A ${r} ${r} 0 0 1 ${nodeX} ${horizY + r}`,
+            `L ${nodeX} ${curveEndY}`,
+          ].join(' ');
+          svg += `<path d="${path}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
         } else {
-          const edgeOffset = Math.min(nodeSize + 1, 5);
-          const startY = cy + edgeOffset;
-          const midY = (startY + linkY) / 2;
-          svg += `<path d="M ${nodeX} ${startY} C ${nodeX} ${midY} ${targetX} ${midY} ${targetX} ${linkY}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
+          // From node going left to target column
+          const startY = cy + nodeSize + 1;
+          const horizY = curveEndY - r;
+          const path = [
+            `M ${nodeX} ${startY}`,
+            `L ${nodeX} ${horizY - r}`,
+            `A ${r} ${r} 0 0 1 ${nodeX - r} ${horizY}`,
+            `L ${targetX + r} ${horizY}`,
+            `A ${r} ${r} 0 0 0 ${targetX} ${horizY + r}`,
+            `L ${targetX} ${curveEndY}`,
+          ].join(' ');
+          svg += `<path d="${path}" stroke="${lineColor}" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"${dashed}/>`;
         }
         break;
       }
@@ -643,9 +683,14 @@ function App() {
                     let badgeClass = 'badge local';
                     let tooltip = 'Local bookmark (not pushed)';
                     if (pr) {
-                      if (pr.state === 'merged') {
+                      // Only show "merged" if branch no longer exists on remote (not tracked)
+                      // If still tracked, the branch is still active despite the merged PR
+                      if (pr.state === 'merged' && !isTracked) {
                         badgeClass = 'badge merged';
                         tooltip = `PR #${pr.number} merged`;
+                      } else if (pr.state === 'merged' && isTracked) {
+                        badgeClass = 'badge tracked';
+                        tooltip = `PR #${pr.number} merged - branch still active`;
                       } else if (pr.state === 'open' || pr.state === 'draft') {
                         badgeClass = pr.state === 'draft' ? 'badge pr-draft' : 'badge pr-open';
                         tooltip = `PR #${pr.number} ${pr.state}`;
@@ -698,9 +743,10 @@ function App() {
                     let badgeClass = 'badge remote';
                     let tooltip = 'Remote only';
                     if (pr) {
+                      // Remote bookmark exists, so branch is still active - don't show as merged
                       if (pr.state === 'merged') {
-                        badgeClass = 'badge merged';
-                        tooltip = `PR #${pr.number} merged`;
+                        // Keep as remote since the branch still exists
+                        tooltip = `PR #${pr.number} merged - branch still active`;
                       } else if (pr.state === 'open' || pr.state === 'draft') {
                         badgeClass = pr.state === 'draft' ? 'badge pr-draft' : 'badge pr-open';
                         tooltip = `PR #${pr.number} ${pr.state}`;
