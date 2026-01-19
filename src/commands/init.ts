@@ -37,6 +37,11 @@ export async function initRepository(withGit: boolean = false): Promise<boolean>
   // Check for existing git repository
   const hasGit = hasGitRepository(folderPath);
 
+  if (withGit && !hasGit) {
+    vscode.window.showErrorMessage('No Git repository found in this folder. Initialize a Git repo first or use "Initialize Repository".');
+    return false;
+  }
+
   // If user didn't specify, ask about git backend
   if (!withGit && hasGit) {
     const choice = await vscode.window.showQuickPick(
@@ -110,8 +115,8 @@ export async function initRepository(withGit: boolean = false): Promise<boolean>
     vscode.window.showInformationMessage(
       `Initialized jj repository${withGit ? ' with Git backend' : ''}.`
     );
-    // Trigger extension reactivation by setting context
-    vscode.commands.executeCommand('setContext', 'open-jj.hasRepository', true);
+    // Re-detect repositories now that .jj may exist.
+    vscode.commands.executeCommand('open-jj.reinitialize');
     return true;
   } else {
     vscode.window.showErrorMessage(`Failed to initialize jj repository: ${result.stderr}`);

@@ -151,50 +151,10 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
     })
   );
 
-  // Set revset
+  // Re-detect repository after init
   context.subscriptions.push(
-    vscode.commands.registerCommand('open-jj.setRevset', async () => {
-      if (!repository) {
-        return;
-      }
-      const trunkFallback = (repo: Repository) => {
-        const candidates = ['main', 'master', 'trunk'];
-        const local = repo.bookmarks.filter((b) => !b.isRemote).map((b) => b.name);
-        return candidates.find((candidate) => local.includes(candidate)) ?? 'trunk';
-      };
-      const trunkName = trunkFallback(repository);
-      const options = [
-        {
-          label: 'Stack',
-          value: `ancestors(reachable(present(@), ~::${trunkName}), 2) | present(${trunkName})`,
-        },
-        {
-          label: 'Own',
-          value: `ancestors(reachable((present(@) | (mine() & mutable())), mutable()), 2) | present(${trunkName})`,
-        },
-        {
-          label: 'Recent (30 days)',
-          value: `present(@) | (::present(${trunkName}) & committer_date(after:"30 days ago")) | ancestors((::(committer_date(after:"30 days ago") | mutable()) ~ ::${trunkName}), 2)`,
-        },
-      ];
-      const current = vscode.workspace.getConfiguration('open-jj').get('logRevset', '');
-      const pick = await vscode.window.showQuickPick(
-        options.map((option) => ({
-          label: option.label,
-          description: option.value,
-          picked: option.value === current,
-        })),
-        { placeHolder: 'Select revset' }
-      );
-      if (!pick) {
-        return;
-      }
-      const selected = options.find((option) => option.label === pick.label);
-      if (!selected) {
-        return;
-      }
-      await vscode.workspace.getConfiguration('open-jj').update('logRevset', selected.value, vscode.ConfigurationTarget.Workspace);
-      await repository.refresh();
+    vscode.commands.registerCommand('open-jj.reinitialize', async () => {
+      await initializeRepository(context);
     })
   );
 

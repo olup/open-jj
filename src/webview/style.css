@@ -185,6 +185,64 @@ body {
 }
 
 /* Drag and drop styles */
+.log.dragging-change .change {
+  transition: background 120ms ease, opacity 120ms ease;
+}
+
+.log.dragging-change .change-header {
+  transition: transform 140ms ease;
+}
+
+.log.dragging-change .graph-node svg {
+  transition: transform 140ms ease, filter 140ms ease;
+}
+
+.log.dragging-change .change:not(.drag-source):not(.drag-descendant):not(.drag-target) {
+  opacity: 0.6;
+}
+
+.change.drag-source {
+  --graph-line-color: var(--vscode-textLink-foreground);
+  --graph-node-stroke: var(--vscode-textLink-foreground);
+  --graph-node-fill: var(--vscode-textLink-foreground);
+}
+
+.change.drag-source .graph-node svg {
+  transform: scale(1.05);
+  filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--vscode-textLink-foreground) 35%, transparent));
+}
+
+.change.drag-descendant {
+  --graph-line-color: var(--vscode-textLink-foreground);
+  --graph-node-stroke: var(--vscode-textLink-foreground);
+}
+
+.change.drag-target {
+  --graph-line-color: var(--vscode-textLink-foreground);
+}
+
+.change.drag-source .change-header,
+.change.drag-descendant .change-header {
+  background: var(--vscode-list-inactiveSelectionBackground);
+}
+
+.change.drag-target .change-header {
+  background: var(--vscode-list-dropBackground);
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+.drag-badge {
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--vscode-textLink-foreground);
+  background: color-mix(in srgb, var(--vscode-textLink-foreground) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground) 40%, transparent);
+  white-space: nowrap;
+}
+
 .change-header.drag-over {
   background: var(--vscode-list-dropBackground);
   outline: 1px dashed var(--vscode-focusBorder);
@@ -230,6 +288,28 @@ body {
 
 .describe-btn:hover {
   background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.init-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.init-btn {
+  border: none;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.init-btn:hover {
+  background: var(--vscode-button-hoverBackground);
 }
 
 .change-actions {

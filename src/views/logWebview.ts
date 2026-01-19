@@ -253,7 +253,17 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   private async _handleMessage(message: { command: string; [key: string]: unknown }): Promise<void> {
-    if (!this._repository) return;
+    if (!this._repository) {
+      if (message.command === 'ready') {
+        this._postState();
+      } else if (message.command === 'init') {
+        vscode.commands.executeCommand('open-jj.init');
+      } else if (message.command === 'initWithGit') {
+        vscode.commands.executeCommand('open-jj.initWithGit');
+      }
+      return;
+    }
+    const repo = this._repository;
 
     try {
     switch (message.command) {
@@ -267,7 +277,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
           const change = this._findChangeByCommitId(commitId);
           if (change && !change.isWorkingCopy) {
             this._changeFiles
-              .ensure(commitId, () => this._repository!.getFilesForRevision(change.commitIdShort, change.hasConflict), false)
+              .ensure(commitId, () => repo.getFilesForRevision(change.commitIdShort, change.hasConflict), false)
               .then(() => this._postState());
           }
         }
@@ -296,14 +306,14 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
       case 'openFile':
         const filePath = message.path as string;
-        const uri = vscode.Uri.file(this._repository.getAbsolutePath(filePath));
+        const uri = vscode.Uri.file(repo.getAbsolutePath(filePath));
         vscode.window.showTextDocument(uri);
         break;
 
       case 'openDiff':
         const diffPath = message.path as string;
         const revision = message.revision as string | undefined;
-        const absPath = this._repository.getAbsolutePath(diffPath);
+        const absPath = repo.getAbsolutePath(diffPath);
         const rightUri = vscode.Uri.file(absPath);
         const leftUri = rightUri.with({
           scheme: 'jj-original',
@@ -321,7 +331,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         break;
 
       case 'refresh':
-        await this._repository.refresh({ refreshPrInfo: true });
+        await repo.refresh({ refreshPrInfo: true });
         break;
 
       case 'ready':
@@ -346,7 +356,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       case 'moveBookmark':
         const bookmarkName = message.bookmarkName as string;
         const bookmarkTargetId = message.targetChangeId as string;
-        const moveSuccess = await this._repository.setBookmark(bookmarkName, bookmarkTargetId);
+        const moveSuccess = await repo.setBookmark(bookmarkName, bookmarkTargetId);
         if (!moveSuccess) {
           vscode.window.showErrorMessage(`Failed to move bookmark "${bookmarkName}"`);
         }
@@ -368,7 +378,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
       case 'pushBookmark':
         const pushName = message.bookmarkName as string;
-        const pushResult = await this._repository.pushBookmark(pushName);
+        const pushResult = await repo.pushBookmark(pushName);
         if (pushResult.success) {
           vscode.window.showInformationMessage(`Pushed bookmark "${pushName}"`);
         } else {
@@ -379,7 +389,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
       case 'deleteBookmark':
         const deleteName = message.bookmarkName as string;
-        const deleteSuccess = await this._repository.deleteBookmark(deleteName);
+        const deleteSuccess = await repo.deleteBookmark(deleteName);
         if (!deleteSuccess) {
           vscode.window.showErrorMessage(`Failed to delete bookmark "${deleteName}"`);
         }
@@ -387,7 +397,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
       case 'createPullRequest':
         const prBookmark = message.bookmarkName as string;
-        const remoteUrl = await this._repository.getRemoteUrl();
+        const remoteUrl = await repo.getRemoteUrl();
         if (remoteUrl) {
           const githubUrl = this._convertToGitHubPrUrl(remoteUrl, prBookmark);
           if (githubUrl) {
@@ -401,10 +411,10 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         break;
 
       case 'authenticateGitHub':
-        const authenticated = await this._repository.authenticateGitHub();
+        const authenticated = await repo.authenticateGitHub();
         if (authenticated) {
           vscode.window.showInformationMessage('GitHub authenticated! Refreshing PR status...');
-          await this._repository.refreshPrInfo();
+          await repo.refreshPrInfo();
         } else {
           vscode.window.showErrorMessage('GitHub authentication failed');
         }
@@ -412,11 +422,11 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
       case 'pushAndCreatePr':
         const pushPrBookmark = message.bookmarkName as string;
-        const pushPrResult = await this._repository.pushBookmark(pushPrBookmark);
+        const pushPrResult = await repo.pushBookmark(pushPrBookmark);
         if (pushPrResult.success) {
           vscode.window.showInformationMessage(`Pushed bookmark "${pushPrBookmark}"`);
           // Now open PR creation page
-          const pushPrRemoteUrl = await this._repository.getRemoteUrl();
+          const pushPrRemoteUrl = await repo.getRemoteUrl();
           if (pushPrRemoteUrl) {
             const pushPrGitHubUrl = this._convertToGitHubPrUrl(pushPrRemoteUrl, pushPrBookmark);
             if (pushPrGitHubUrl) {

@@ -2,7 +2,7 @@
   "name": "open-jj",
   "displayName": "OPEN JJ",
   "description": "Jujutsu (jj) version control integration for VS Code",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publisher": "olup",
   "license": "MIT",
   "engines": {
@@ -103,12 +103,6 @@
         "icon": "$(cloud-download)"
       },
       {
-        "command": "open-jj.setRevset",
-        "title": "Set Revset",
-        "category": "JJ",
-        "icon": "$(settings-gear)"
-      },
-      {
         "command": "open-jj.githubAuth",
         "title": "GitHub",
         "category": "JJ",
@@ -145,11 +139,6 @@
       "view/title": [
         {
           "command": "open-jj.refresh",
-          "when": "view == open-jj.logWebview && open-jj.hasRepository",
-          "group": "navigation"
-        },
-        {
-          "command": "open-jj.setRevset",
           "when": "view == open-jj.logWebview && open-jj.hasRepository",
           "group": "navigation"
         },
@@ -241,11 +230,6 @@
           "type": "number",
           "default": 0,
           "description": "Maximum number of changes to show in the log view (0 for all)"
-        },
-        "open-jj.logRevset": {
-          "type": "string",
-          "default": "present(::trunk())",
-          "description": "Revset to show in the log view (e.g. present(::trunk()), present(::remote_bookmarks()), root())"
         }
       }
     }

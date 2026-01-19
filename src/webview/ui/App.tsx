@@ -159,17 +159,19 @@ function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphI
   const width = Math.max(maxColumns * colWidth + colWidth, 16);
   const nodeX = nodeColumn * colWidth + colWidth / 2;
 
-  const lineColor = 'var(--vscode-descriptionForeground)';
-  const nodeStroke = change.isWorkingCopy
+  const lineColor = 'var(--graph-line-color, var(--vscode-descriptionForeground))';
+  const baseNodeStroke = change.isWorkingCopy
     ? 'var(--vscode-textLink-foreground)'
     : change.hasConflict
       ? 'var(--vscode-gitDecoration-conflictingResourceForeground)'
       : 'var(--vscode-descriptionForeground)';
-  const nodeFill = change.isWorkingCopy
+  const baseNodeFill = change.isWorkingCopy
     ? 'var(--vscode-textLink-foreground)'
     : change.hasConflict
       ? 'var(--vscode-gitDecoration-conflictingResourceForeground)'
       : 'var(--vscode-editor-background)';
+  const nodeStroke = `var(--graph-node-stroke, ${baseNodeStroke})`;
+  const nodeFill = `var(--graph-node-fill, ${baseNodeFill})`;
 
   let svg = `<svg width="${width}" height="${svgHeight}" viewBox="0 0 ${width} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">`;
 
@@ -378,6 +380,9 @@ function renderFilesGutterSvg(graphInfo: GraphInfo): { svg: string; width: numbe
 function App() {
   const [state, setState] = useState<WebviewState>(() => getInitialState());
   const dragDataRef = useRef<{ type: string; [key: string]: string } | null>(null);
+  const [draggingChange, setDraggingChange] = useState<{ changeId: string; commitId: string } | null>(null);
+  const [dragTargetChangeId, setDragTargetChangeId] = useState<string | null>(null);
+  const [dragBranchCommitIds, setDragBranchCommitIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const listener = (event: MessageEvent) => {
@@ -392,6 +397,26 @@ function App() {
   }, []);
 
   const expandedSet = useMemo(() => new Set(state.expandedCommitIds), [state.expandedCommitIds]);
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const change of state.changes) {
+      for (const parentId of change.parentIds) {
+        const entry = map.get(parentId);
+        if (entry) {
+          entry.push(change.commitId);
+        } else {
+          map.set(parentId, [change.commitId]);
+        }
+      }
+    }
+    return map;
+  }, [state.changes]);
+
+  const clearDragState = () => {
+    setDraggingChange(null);
+    setDragTargetChangeId(null);
+    setDragBranchCommitIds(new Set());
+  };
 
   const handleToggle = (commitId: string) => {
     const change = state.changes.find((item) => item.commitId === commitId);
@@ -550,6 +575,31 @@ function App() {
     dragDataRef.current = payload;
     event.dataTransfer.setData('text/plain', JSON.stringify(payload));
     event.dataTransfer.effectAllowed = 'move';
+    if (payload.type !== 'change') {
+      clearDragState();
+      return;
+    }
+    const change = state.changes.find((item) => item.changeId === payload.changeId);
+    if (!change) {
+      clearDragState();
+      return;
+    }
+    const stack = [change.commitId];
+    const seen = new Set<string>();
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current || seen.has(current)) continue;
+      seen.add(current);
+      const children = childrenByParent.get(current) ?? [];
+      for (const child of children) {
+        if (!seen.has(child)) {
+          stack.push(child);
+        }
+      }
+    }
+    setDraggingChange({ changeId: change.changeId, commitId: change.commitId });
+    setDragTargetChangeId(null);
+    setDragBranchCommitIds(seen);
   };
 
   const handleDrop = (event: React.DragEvent, targetChangeId: string) => {
@@ -557,7 +607,10 @@ function App() {
     event.stopPropagation();
     const data = dragDataRef.current;
     dragDataRef.current = null;
-    if (!data) return;
+    if (!data) {
+      clearDragState();
+      return;
+    }
 
     if (data.type === 'change') {
       if (data.changeId !== targetChangeId) {
@@ -570,15 +623,16 @@ function App() {
         send('moveFile', { filePath: data.filePath, fromChangeId: data.fromChangeId, targetChangeId });
       }
     }
+    clearDragState();
   };
 
   if (!state.hasRepository) {
     return (
       <div className="empty">
         <div>No JJ repository found.</div>
-        <div style={{ marginTop: '8px' }}>
-          <button className="describe-btn" onClick={() => send('init')}>Initialize Repository</button>
-          <button className="describe-btn" style={{ marginLeft: '8px' }} onClick={() => send('initWithGit')}>
+        <div className="init-actions">
+          <button className="init-btn" onClick={() => send('init')}>Initialize Repository</button>
+          <button className="init-btn" onClick={() => send('initWithGit')}>
             Initialize with Git Backend
           </button>
         </div>
@@ -587,7 +641,7 @@ function App() {
   }
 
   return (
-    <div className="log">
+    <div className={`log ${draggingChange ? 'dragging-change' : ''}`}>
       {state.changes.length === 0 ? (
         <div className="empty">No changes found</div>
       ) : (
@@ -603,11 +657,17 @@ function App() {
           const hasDescription = change.description && change.description !== '(no description)';
           const localBookmarks = change.bookmarks.filter((b) => !b.includes('@'));
           const remoteBookmarks = change.bookmarks.filter((b) => b.includes('@'));
+          const isDragSource = draggingChange?.changeId === change.changeId;
+          const isDragDescendant = dragBranchCommitIds.has(change.commitId) && !isDragSource;
+          const isDragTarget = dragTargetChangeId === change.changeId && !isDragSource;
+          const dragBranchCount = dragBranchCommitIds.size;
 
           return (
             <div
               key={change.commitId}
-              className={`change ${isWorkingCopy ? 'working-copy' : ''} ${change.hasConflict ? 'conflict' : ''}`}
+              className={`change ${isWorkingCopy ? 'working-copy' : ''} ${change.hasConflict ? 'conflict' : ''} ${
+                isDragSource ? 'drag-source' : ''
+              } ${isDragDescendant ? 'drag-descendant' : ''} ${isDragTarget ? 'drag-target' : ''}`}
               data-change-id={change.changeId}
             >
               <div
@@ -622,10 +682,14 @@ function App() {
                 }}
                 onDragEnter={(event) => {
                   event.preventDefault();
+                  if (dragDataRef.current?.type === 'change') {
+                    setDragTargetChangeId(change.changeId);
+                  }
                   event.currentTarget.classList.add('drag-over');
                 }}
                 onDragLeave={(event) => {
                   if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                    setDragTargetChangeId((current) => (current === change.changeId ? null : current));
                     event.currentTarget.classList.remove('drag-over');
                   }
                 }}
@@ -640,6 +704,7 @@ function App() {
                   onDragStart={(event) =>
                     handleDragStart(event, { type: 'change', changeId: change.changeId })
                   }
+                  onDragEnd={() => clearDragState()}
                   onDoubleClick={(event) => {
                     event.stopPropagation();
                     send('editChange', { changeId: change.changeId });
@@ -669,6 +734,9 @@ function App() {
                     </button>
                   </>
                 )}
+                {isDragSource && dragBranchCount > 1 ? (
+                  <span className="drag-badge">Moving {dragBranchCount} commits</span>
+                ) : null}
                 <span className="bookmarks" onClick={(event) => {
                   event.stopPropagation();
                   send('manageBookmarks', { changeId: change.changeId });

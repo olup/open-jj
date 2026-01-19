@@ -228,7 +228,7 @@ export class Repository implements vscode.Disposable {
 
   private async _refreshNow(options?: { refreshPrInfo?: boolean }): Promise<void> {
     const logLimit = vscode.workspace.getConfiguration('open-jj').get('logLimit', 0);
-    const logRevset = vscode.workspace.getConfiguration('open-jj').get('logRevset', 'present(::trunk())');
+    const logRevset = '::';
     const effectiveLimit = logLimit && logLimit > 0 ? logLimit : undefined;
 
     const [status, logResult, fullLogResult, bookmarks] = await Promise.all([
