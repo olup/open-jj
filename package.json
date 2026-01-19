@@ -251,7 +251,9 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run build:webview && npm run compile",
+    "vscode:prepublish": "npm run build",
+    "build": "npm run build:webview && npm run compile",
+    "build-vsix": "npm run build && vsce package",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "build:webview": "vite build",
@@ -261,6 +263,7 @@
     "test:unit": "vitest run"
   },
   "devDependencies": {
+    "@vscode/vsce": "^2.26.1",
     "@vitejs/plugin-react": "^4.3.4",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
