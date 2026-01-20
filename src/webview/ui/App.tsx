@@ -1,4 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+} from '@dnd-kit/core';
 
 type FileChange = {
   path: string;
@@ -66,11 +75,12 @@ type WebviewState = {
   hasRepository: boolean;
   changes: Change[];
   workingCopyFiles: FileChange[];
-  expandedCommitIds: string[];
+  expandedChangeIds: string[];
   changeFiles: Record<string, FileChange[]>;
   graphInfo: Record<string, GraphInfo>;
   prInfo: Record<string, PullRequestInfo>;
   bookmarks: Bookmark[];
+  isRefreshing: boolean;
 };
 
 declare global {
@@ -120,11 +130,12 @@ function getInitialState(): WebviewState {
       hasRepository: false,
       changes: [],
       workingCopyFiles: [],
-      expandedCommitIds: [],
+      expandedChangeIds: [],
       changeFiles: {},
       graphInfo: {},
       prInfo: {},
       bookmarks: [],
+      isRefreshing: false,
     }
   );
 }
@@ -377,18 +388,461 @@ function renderFilesGutterSvg(graphInfo: GraphInfo): { svg: string; width: numbe
   return { svg, width };
 }
 
+type ChangeRowProps = {
+  change: Change;
+  graphMarkup: string;
+  graphInfo?: GraphInfo;
+  isExpanded: boolean;
+  isWorkingCopy: boolean;
+  files: FileChange[];
+  hasFiles: boolean;
+  hasDescription: boolean;
+  localBookmarks: string[];
+  remoteBookmarks: string[];
+  isDragSource: boolean;
+  isDragDescendant: boolean;
+  isDragTarget: boolean;
+  dragBranchCount: number;
+  handleToggle: (commitId: string) => void;
+  handleContextMenu: (event: React.MouseEvent, change: Change) => void;
+  handleDragStart: (event: React.DragEvent, payload: { type: string; [key: string]: string }) => void;
+  handleDrop: (event: React.DragEvent, targetChangeId: string) => void;
+  setDragTargetChangeId: React.Dispatch<React.SetStateAction<string | null>>;
+  activeFile: { changeId: string; path: string } | null;
+  setActiveFile: React.Dispatch<React.SetStateAction<{ changeId: string; path: string } | null>>;
+  showBookmarkMenu: (event: React.MouseEvent, bookmarkName: string, changeId: string, isTracked: boolean) => void;
+  send: (command: string, data?: Record<string, unknown>) => void;
+  state: WebviewState;
+};
+
+type BookmarkBadgeProps = {
+  id: string;
+  bookmarkName: string;
+  className: string;
+  title?: string;
+  onContextMenu?: (event: React.MouseEvent) => void;
+  onClick?: (event: React.MouseEvent) => void;
+  children: React.ReactNode;
+};
+
+function BookmarkBadge({ id, bookmarkName, className, title, onContextMenu, onClick, children }: BookmarkBadgeProps) {
+  const { attributes, listeners, setNodeRef } = useDraggable({
+    id,
+    data: { type: 'bookmark', bookmarkName },
+  });
+
+  return (
+    <span
+      ref={setNodeRef}
+      className={`${className} draggable`}
+      title={title}
+      onContextMenu={onContextMenu}
+      onClick={onClick}
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </span>
+  );
+}
+
+type FileRowProps = {
+  change: Change;
+  file: FileChange;
+  isWorkingCopy: boolean;
+  isActive: boolean;
+  send: (command: string, data?: Record<string, unknown>) => void;
+  setActiveFile: React.Dispatch<React.SetStateAction<{ changeId: string; path: string } | null>>;
+};
+
+function FileRow({ change, file, isWorkingCopy, isActive, send, setActiveFile }: FileRowProps) {
+  const { attributes, listeners, setNodeRef } = useDraggable({
+    id: `file:${change.changeId}:${file.path}`,
+    data: { type: 'file', filePath: file.path, fromChangeId: change.changeId },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`file${isActive ? ' active' : ''}`}
+      title="Drag to move to another change"
+      {...attributes}
+      {...listeners}
+    >
+      <span className={`file-icon ${file.status}`}>
+        <span className={`codicon ${getFileIcon(file.status)}`} />
+      </span>
+      <span
+        className="file-path"
+        onClick={(event) => {
+          event.stopPropagation();
+          setActiveFile({ changeId: change.changeId, path: file.path });
+          send('openDiff', { path: file.path, revision: isWorkingCopy ? undefined : change.commitIdShort });
+        }}
+      >
+        {file.path}
+      </span>
+      <button
+        className="icon-button small"
+        title="Open File"
+        onClick={(event) => {
+          event.stopPropagation();
+          setActiveFile({ changeId: change.changeId, path: file.path });
+          send('openFile', { path: file.path });
+        }}
+      >
+        <span className="codicon codicon-go-to-file" />
+      </button>
+      {isWorkingCopy ? (
+        <button
+          className="icon-button small"
+          title="Revert File"
+          onClick={(event) => {
+            event.stopPropagation();
+            send('revertFile', { path: file.path });
+          }}
+        >
+          <span className="codicon codicon-discard" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function ChangeRow({
+  change,
+  graphMarkup,
+  graphInfo,
+  isExpanded,
+  isWorkingCopy,
+  files,
+  hasFiles,
+  hasDescription,
+  localBookmarks,
+  remoteBookmarks,
+  isDragSource,
+  isDragDescendant,
+  isDragTarget,
+  dragBranchCount,
+  handleToggle,
+  handleContextMenu,
+  handleDragStart,
+  handleDrop,
+  setDragTargetChangeId,
+  activeFile,
+  setActiveFile,
+  showBookmarkMenu,
+  send,
+  state,
+}: ChangeRowProps) {
+  const { attributes, listeners, setNodeRef: setDragNodeRef } = useDraggable({
+    id: change.changeId,
+    data: { type: 'change', changeId: change.changeId },
+  });
+  const { setNodeRef: setDropNodeRef, isOver } = useDroppable({
+    id: change.changeId,
+    data: { type: 'change-target', changeId: change.changeId },
+  });
+
+  const setHeaderRef = (node: HTMLDivElement | null) => {
+    setDropNodeRef(node);
+  };
+
+  return (
+    <div
+      className={`change ${isWorkingCopy ? 'working-copy' : ''} ${change.hasConflict ? 'conflict' : ''} ${
+        isDragSource ? 'drag-source' : ''
+      } ${isDragDescendant ? 'drag-descendant' : ''} ${isDragTarget || isOver ? 'drag-target' : ''}`}
+      data-change-id={change.changeId}
+    >
+      <div
+        ref={setHeaderRef}
+        className="change-header"
+        data-change-id={change.changeId}
+        data-commit-id={change.commitId}
+        onClick={() => handleToggle(change.changeId)}
+        onContextMenu={(event) => handleContextMenu(event, change)}
+        onDragOver={(event) => {
+          const hasDragData = !!dragDataRef.current || event.dataTransfer.types.includes('text/plain');
+          if (!hasDragData) {
+            return;
+          }
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+        }}
+        onDragEnter={(event) => {
+          const hasDragData = !!dragDataRef.current || event.dataTransfer.types.includes('text/plain');
+          if (!hasDragData) {
+            return;
+          }
+          event.preventDefault();
+          setDragTargetChangeId(change.changeId);
+          event.currentTarget.classList.add('drag-over');
+        }}
+        onDragLeave={(event) => {
+          const hasDragData = !!dragDataRef.current || event.dataTransfer.types.includes('text/plain');
+          if (!hasDragData) {
+            return;
+          }
+          if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+            setDragTargetChangeId((current) => (current === change.changeId ? null : current));
+            event.currentTarget.classList.remove('drag-over');
+          }
+        }}
+        onDrop={(event) => {
+          const hasDragData = !!dragDataRef.current || event.dataTransfer.types.includes('text/plain');
+          if (!hasDragData) {
+            return;
+          }
+          event.currentTarget.classList.remove('drag-over');
+          handleDrop(event, change.changeId);
+        }}
+      >
+        <span
+          ref={setDragNodeRef}
+          className="graph-node"
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            send('editChange', { changeId: change.changeId });
+          }}
+          onClick={(event) => event.stopPropagation()}
+          dangerouslySetInnerHTML={{ __html: graphMarkup }}
+          {...attributes}
+          {...listeners}
+        />
+        <span
+          className={`expand-icon codicon ${hasFiles ? '' : 'hidden'} ${
+            isExpanded ? 'codicon-chevron-down' : 'codicon-chevron-right'
+          }`}
+          style={graphInfo ? { marginLeft: -((graphInfo.maxColumns - graphInfo.nodeColumn - 1) * GRAPH_COL_WIDTH) } : undefined}
+        />
+        {hasDescription ? (
+          <span className="change-desc">{isWorkingCopy ? '@ ' : ''}{change.description}</span>
+        ) : (
+          <>
+            <span className="change-desc placeholder">{isWorkingCopy ? '@ ' : ''}</span>
+            <button
+              className="describe-btn"
+              onClick={(event) => {
+                event.stopPropagation();
+                send('describeChange', { changeId: change.changeId });
+              }}
+            >
+              Describe
+            </button>
+          </>
+        )}
+        {isDragSource && dragBranchCount > 1 ? (
+          <span className="drag-badge">Moving {dragBranchCount} commits</span>
+        ) : null}
+        <span className="bookmarks" onClick={(event) => {
+          event.stopPropagation();
+          send('manageBookmarks', { changeId: change.changeId });
+        }}>
+          {localBookmarks.map((name) => {
+            const isConflicted = name.endsWith('*');
+            const cleanName = isConflicted ? name.slice(0, -1) : name;
+            const bookmarkInfo = state.bookmarks.find((b) => b.name === cleanName && !b.isRemote);
+            const isTracked = bookmarkInfo?.isTracked ?? false;
+            const hasRemote = state.bookmarks.some(
+              (b) => b.isRemote && b.name === cleanName
+            );
+            const pr = state.prInfo[cleanName];
+
+            let badgeClass = 'badge local';
+            let tooltip = 'Local bookmark (not pushed)';
+            if (pr) {
+              // Only show "merged" if branch no longer exists on remote (not tracked)
+              // If still tracked, the branch is still active despite the merged PR
+              if (pr.state === 'merged' && !isTracked && !hasRemote) {
+                badgeClass = 'badge merged';
+                tooltip = `PR #${pr.number} merged`;
+              } else if (pr.state === 'merged' && (isTracked || hasRemote)) {
+                badgeClass = 'badge tracked';
+                tooltip = `PR #${pr.number} merged - branch still active`;
+              } else if (pr.state === 'open' || pr.state === 'draft') {
+                badgeClass = pr.state === 'draft' ? 'badge pr-draft' : 'badge pr-open';
+                tooltip = `PR #${pr.number} ${pr.state}`;
+              } else if (pr.state === 'closed') {
+                badgeClass = 'badge pr-closed';
+                tooltip = `PR #${pr.number} closed`;
+              }
+            } else if (isTracked) {
+              badgeClass = 'badge tracked';
+              tooltip = 'Pushed to remote (no PR)';
+            }
+
+            const isDiverged = isConflicted || bookmarkInfo?.isConflicted;
+            if (isDiverged) {
+              tooltip += ' - DIVERGED from remote';
+            }
+
+            return (
+              <BookmarkBadge
+                key={name}
+                id={`bookmark:${cleanName}:${change.changeId}`}
+                bookmarkName={cleanName}
+                className={`${badgeClass}${pr?.url ? ' clickable' : ''}`}
+                title={tooltip}
+                onContextMenu={(event) => showBookmarkMenu(event, cleanName, change.changeId, isTracked)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (pr?.url) {
+                    send('openUrl', { url: pr.url });
+                  }
+                }}
+              >
+                {cleanName}
+                {pr ? <span className="codicon codicon-git-merge badge-pr-icon" title="Pull request" /> : null}
+                {isTracked ? <span className="codicon codicon-cloud badge-cloud-icon" title="Synced" /> : null}
+                {isDiverged ? <span className="codicon codicon-cloud badge-cloud-icon diverged" title="Diverged" /> : null}
+              </BookmarkBadge>
+            );
+          })}
+          {remoteBookmarks.map((name) => {
+            const localName = name.split('@')[0];
+            if (localBookmarks.includes(localName) || localBookmarks.includes(`${localName}*`)) {
+              return null;
+            }
+            // Check for PR info using the base bookmark name
+            const pr = state.prInfo[localName];
+
+            let badgeClass = 'badge remote';
+            let tooltip = 'Remote only';
+            if (pr) {
+              // Remote bookmark exists, so branch is still active - don't show as merged
+              if (pr.state === 'merged') {
+                // Keep as remote since the branch still exists
+                tooltip = `PR #${pr.number} merged - branch still active`;
+              } else if (pr.state === 'open' || pr.state === 'draft') {
+                badgeClass = pr.state === 'draft' ? 'badge pr-draft' : 'badge pr-open';
+                tooltip = `PR #${pr.number} ${pr.state}`;
+              } else if (pr.state === 'closed') {
+                badgeClass = 'badge pr-closed';
+                tooltip = `PR #${pr.number} closed`;
+              }
+            }
+
+            return (
+              <span
+                key={name}
+                className={`${badgeClass}${pr?.url ? ' clickable' : ''}`}
+                title={tooltip}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (pr?.url) {
+                    send('openUrl', { url: pr.url });
+                  }
+                }}
+              >
+                {name}
+                {pr ? <span className="codicon codicon-git-merge badge-pr-icon" title="Pull request" /> : null}
+                {!pr ? <span className="codicon codicon-cloud badge-cloud-icon" title="Remote" /> : null}
+              </span>
+            );
+          })}
+        </span>
+        <span className="change-actions">
+          <button
+            className="icon-button small"
+            onClick={(event) => {
+              event.stopPropagation();
+              send('newChangeFrom', { changeId: change.changeId });
+            }}
+          >
+            <span className="codicon codicon-add" />
+          </button>
+        </span>
+      </div>
+      {isExpanded && files.length > 0 ? (
+        <div className="files">
+          {graphInfo ? (() => {
+            const gutter = renderFilesGutterSvg(graphInfo);
+            return (
+              <>
+                <div
+                  className="files-gutter"
+                  style={{ width: gutter.width }}
+                  dangerouslySetInnerHTML={{ __html: gutter.svg }}
+                />
+                <div className="files-list" style={{ marginLeft: `${gutter.width + 6}px` }}>
+                  {files.map((file) => (
+                    <FileRow
+                      key={file.path}
+                      change={change}
+                      file={file}
+                      isWorkingCopy={isWorkingCopy}
+                      isActive={activeFile?.changeId === change.changeId && activeFile?.path === file.path}
+                      send={send}
+                      setActiveFile={setActiveFile}
+                    />
+                  ))}
+                </div>
+              </>
+            );
+          })() : (
+            <div className="files-list">
+              {files.map((file) => (
+                <FileRow
+                  key={file.path}
+                  change={change}
+                  file={file}
+                  isWorkingCopy={isWorkingCopy}
+                  isActive={activeFile?.changeId === change.changeId && activeFile?.path === file.path}
+                  send={send}
+                  setActiveFile={setActiveFile}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function App() {
   const [state, setState] = useState<WebviewState>(() => getInitialState());
   const dragDataRef = useRef<{ type: string; [key: string]: string } | null>(null);
   const [draggingChange, setDraggingChange] = useState<{ changeId: string; commitId: string } | null>(null);
   const [dragTargetChangeId, setDragTargetChangeId] = useState<string | null>(null);
   const [dragBranchCommitIds, setDragBranchCommitIds] = useState<Set<string>>(new Set());
+  const [activeFile, setActiveFile] = useState<{ changeId: string; path: string } | null>(null);
+  const [activeDrag, setActiveDrag] = useState<{ type: string; changeId?: string; filePath?: string; fromChangeId?: string; bookmarkName?: string } | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   useEffect(() => {
     const listener = (event: MessageEvent) => {
-      const message = event.data as { type?: string; state?: WebviewState };
+      const message = event.data as { type?: string; state?: WebviewState; changeId?: string | null; path?: string | null };
       if (message?.type === 'state' && message.state) {
         setState(message.state);
+        return;
+      }
+      if (message?.type === 'activeFile') {
+        const changeId = message.changeId ?? null;
+        const path = message.path ?? null;
+        if (changeId && path) {
+          setActiveFile({ changeId, path });
+          return;
+        }
+        if (path) {
+          const workingCopy = state.changes.find((item) => item.isWorkingCopy);
+          const inWorkingCopy = state.workingCopyFiles.some(
+            (file) => file.path === path || file.originalPath === path
+          );
+          if (workingCopy && inWorkingCopy) {
+            setActiveFile({ changeId: workingCopy.changeId, path });
+            return;
+          }
+          const matchingChangeId = Object.keys(state.changeFiles).find((id) =>
+            state.changeFiles[id]?.some((file) => file.path === path || file.originalPath === path)
+          );
+          if (matchingChangeId) {
+            setActiveFile({ changeId: matchingChangeId, path });
+            return;
+          }
+        }
+        setActiveFile(null);
       }
     };
     window.addEventListener('message', listener);
@@ -396,7 +850,7 @@ function App() {
     return () => window.removeEventListener('message', listener);
   }, []);
 
-  const expandedSet = useMemo(() => new Set(state.expandedCommitIds), [state.expandedCommitIds]);
+  const expandedSet = useMemo(() => new Set(state.expandedChangeIds), [state.expandedChangeIds]);
   const childrenByParent = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const change of state.changes) {
@@ -416,15 +870,16 @@ function App() {
     setDraggingChange(null);
     setDragTargetChangeId(null);
     setDragBranchCommitIds(new Set());
+    setActiveDrag(null);
   };
 
-  const handleToggle = (commitId: string) => {
-    const change = state.changes.find((item) => item.commitId === commitId);
-    const graphInfo = state.graphInfo[commitId];
-    const files = change?.isWorkingCopy ? state.workingCopyFiles : state.changeFiles[commitId];
+  const handleToggle = (changeId: string) => {
+    const change = state.changes.find((item) => item.changeId === changeId);
+    const graphInfo = change ? state.graphInfo[change.commitId] : undefined;
+    const files = change?.isWorkingCopy ? state.workingCopyFiles : state.changeFiles[changeId];
     console.log('[open-jj] toggleChange', {
-      commitId,
-      changeId: change?.changeId,
+      commitId: change?.commitId,
+      changeId,
       isWorkingCopy: change?.isWorkingCopy,
       hasConflict: change?.hasConflict,
       graphInfo,
@@ -434,7 +889,7 @@ function App() {
       activeColumns: graphInfo?.activeColumns,
       filesCount: files?.length ?? 0,
     });
-    send('toggleChange', { commitId });
+    send('toggleChange', { changeId });
   };
 
   const handleContextMenu = (event: React.MouseEvent, change: Change) => {
@@ -575,48 +1030,27 @@ function App() {
     dragDataRef.current = payload;
     event.dataTransfer.setData('text/plain', JSON.stringify(payload));
     event.dataTransfer.effectAllowed = 'move';
-    if (payload.type !== 'change') {
-      clearDragState();
-      return;
-    }
-    const change = state.changes.find((item) => item.changeId === payload.changeId);
-    if (!change) {
-      clearDragState();
-      return;
-    }
-    const stack = [change.commitId];
-    const seen = new Set<string>();
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (!current || seen.has(current)) continue;
-      seen.add(current);
-      const children = childrenByParent.get(current) ?? [];
-      for (const child of children) {
-        if (!seen.has(child)) {
-          stack.push(child);
-        }
-      }
-    }
-    setDraggingChange({ changeId: change.changeId, commitId: change.commitId });
-    setDragTargetChangeId(null);
-    setDragBranchCommitIds(seen);
   };
 
   const handleDrop = (event: React.DragEvent, targetChangeId: string) => {
     event.preventDefault();
     event.stopPropagation();
-    const data = dragDataRef.current;
+    const data = dragDataRef.current ?? (() => {
+      const raw = event.dataTransfer.getData('text/plain');
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    })();
     dragDataRef.current = null;
     if (!data) {
       clearDragState();
       return;
     }
 
-    if (data.type === 'change') {
-      if (data.changeId !== targetChangeId) {
-        send('rebaseChange', { sourceChangeId: data.changeId, targetChangeId });
-      }
-    } else if (data.type === 'bookmark') {
+    if (data.type === 'bookmark') {
       send('moveBookmark', { bookmarkName: data.bookmarkName, targetChangeId });
     } else if (data.type === 'file') {
       if (data.fromChangeId !== targetChangeId) {
@@ -641,313 +1075,161 @@ function App() {
   }
 
   return (
-    <div className={`log ${draggingChange ? 'dragging-change' : ''}`}>
-      {state.changes.length === 0 ? (
-        <div className="empty">No changes found</div>
-      ) : (
-        state.changes.map((change, index) => {
-          const isExpanded = expandedSet.has(change.commitId);
-          const isWorkingCopy = change.isWorkingCopy;
-          const files = isWorkingCopy
-            ? state.workingCopyFiles
-            : state.changeFiles[change.commitId] ?? [];
-          const hasFiles = files.length > 0 || !change.isEmpty;
-          const graphInfo = state.graphInfo[change.commitId];
-          const graphMarkup = renderNodeSvg(change, index === 0, index === state.changes.length - 1, graphInfo);
-          const hasDescription = change.description && change.description !== '(no description)';
-          const localBookmarks = change.bookmarks.filter((b) => !b.includes('@'));
-          const remoteBookmarks = change.bookmarks.filter((b) => b.includes('@'));
-          const isDragSource = draggingChange?.changeId === change.changeId;
-          const isDragDescendant = dragBranchCommitIds.has(change.commitId) && !isDragSource;
-          const isDragTarget = dragTargetChangeId === change.changeId && !isDragSource;
-          const dragBranchCount = dragBranchCommitIds.size;
+    <DndContext
+      sensors={sensors}
+      onDragStart={(event) => {
+        const data = event.active.data.current;
+        if (!data) {
+          clearDragState();
+          return;
+        }
+        setActiveDrag(data as { type: string; changeId?: string; filePath?: string; fromChangeId?: string; bookmarkName?: string });
+        if (data.type === 'change') {
+          const change = state.changes.find((item) => item.changeId === data.changeId);
+          if (!change) {
+            clearDragState();
+            return;
+          }
+          const stack = [change.commitId];
+          const seen = new Set<string>();
+          while (stack.length > 0) {
+            const current = stack.pop();
+            if (!current || seen.has(current)) continue;
+            seen.add(current);
+            const children = childrenByParent.get(current) ?? [];
+            for (const child of children) {
+              if (!seen.has(child)) {
+                stack.push(child);
+              }
+            }
+          }
+          setDraggingChange({ changeId: change.changeId, commitId: change.commitId });
+          setDragTargetChangeId(null);
+          setDragBranchCommitIds(seen);
+        } else {
+          setDraggingChange(null);
+          setDragTargetChangeId(null);
+          setDragBranchCommitIds(new Set());
+        }
+      }}
+      onDragOver={(event) => {
+        const overId = event.over?.id as string | undefined;
+        setDragTargetChangeId(overId ?? null);
+      }}
+      onDragCancel={() => clearDragState()}
+      onDragEnd={(event) => {
+        const overId = event.over?.id as string | undefined;
+        const data = event.active.data.current as { type?: string; changeId?: string; filePath?: string; fromChangeId?: string; bookmarkName?: string } | null;
+        if (data?.type === 'change') {
+          const activeId = data.changeId ?? (event.active.id as string);
+          if (overId && activeId !== overId) {
+            send('rebaseChange', { sourceChangeId: activeId, targetChangeId: overId });
+          }
+        } else if (data?.type === 'file') {
+          if (overId && data.fromChangeId && data.filePath && data.fromChangeId !== overId) {
+            send('moveFile', { filePath: data.filePath, fromChangeId: data.fromChangeId, targetChangeId: overId });
+          }
+        } else if (data?.type === 'bookmark') {
+          if (overId && data.bookmarkName) {
+            send('moveBookmark', { bookmarkName: data.bookmarkName, targetChangeId: overId });
+          }
+        }
+        clearDragState();
+      }}
+    >
+      <div className={`log ${draggingChange ? 'dragging-change' : ''}`}>
+        {state.changes.length === 0 ? (
+          <div className="empty">
+            {state.isRefreshing ? (
+              <>
+                <div>Loading changes...</div>
+                <div className="empty-sub">This may take a moment after initializing the repository.</div>
+              </>
+            ) : (
+              <div>No changes found</div>
+            )}
+          </div>
+        ) : (
+          state.changes.map((change, index) => {
+            const isExpanded = expandedSet.has(change.changeId);
+            const isWorkingCopy = change.isWorkingCopy;
+            const files = isWorkingCopy
+              ? state.workingCopyFiles
+              : state.changeFiles[change.changeId] ?? [];
+            const hasFiles = files.length > 0 || !change.isEmpty;
+            const graphInfo = state.graphInfo[change.commitId];
+            const graphMarkup = renderNodeSvg(change, index === 0, index === state.changes.length - 1, graphInfo);
+            const hasDescription = Boolean(change.description && change.description !== '(no description)');
+            const localBookmarks = change.bookmarks.filter((b) => !b.includes('@'));
+            const remoteBookmarks = change.bookmarks.filter((b) => b.includes('@'));
+            const isDragSource = draggingChange?.changeId === change.changeId;
+            const isDragDescendant = dragBranchCommitIds.has(change.commitId) && !isDragSource;
+            const isDragTarget = dragTargetChangeId === change.changeId && !isDragSource;
+            const dragBranchCount = dragBranchCommitIds.size;
 
-          return (
-            <div
-              key={change.commitId}
-              className={`change ${isWorkingCopy ? 'working-copy' : ''} ${change.hasConflict ? 'conflict' : ''} ${
-                isDragSource ? 'drag-source' : ''
-              } ${isDragDescendant ? 'drag-descendant' : ''} ${isDragTarget ? 'drag-target' : ''}`}
-              data-change-id={change.changeId}
-            >
-              <div
-                className="change-header"
-                data-change-id={change.changeId}
-                data-commit-id={change.commitId}
-                onClick={() => handleToggle(change.commitId)}
-                onContextMenu={(event) => handleContextMenu(event, change)}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = 'move';
-                }}
-                onDragEnter={(event) => {
-                  event.preventDefault();
-                  if (dragDataRef.current?.type === 'change') {
-                    setDragTargetChangeId(change.changeId);
-                  }
-                  event.currentTarget.classList.add('drag-over');
-                }}
-                onDragLeave={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget as Node)) {
-                    setDragTargetChangeId((current) => (current === change.changeId ? null : current));
-                    event.currentTarget.classList.remove('drag-over');
-                  }
-                }}
-                onDrop={(event) => {
-                  event.currentTarget.classList.remove('drag-over');
-                  handleDrop(event, change.changeId);
-                }}
-              >
-                <span
-                  className="graph-node"
-                  draggable
-                  onDragStart={(event) =>
-                    handleDragStart(event, { type: 'change', changeId: change.changeId })
-                  }
-                  onDragEnd={() => clearDragState()}
-                  onDoubleClick={(event) => {
-                    event.stopPropagation();
-                    send('editChange', { changeId: change.changeId });
-                  }}
-                  onClick={(event) => event.stopPropagation()}
-                  dangerouslySetInnerHTML={{ __html: graphMarkup }}
-                />
-                <span
-                  className={`expand-icon codicon ${hasFiles ? '' : 'hidden'} ${
-                    isExpanded ? 'codicon-chevron-down' : 'codicon-chevron-right'
-                  }`}
-                  style={graphInfo ? { marginLeft: -((graphInfo.maxColumns - graphInfo.nodeColumn - 1) * GRAPH_COL_WIDTH) } : undefined}
-                />
-                {hasDescription ? (
-                  <span className="change-desc">{isWorkingCopy ? '@ ' : ''}{change.description}</span>
-                ) : (
-                  <>
-                    <span className="change-desc placeholder">{isWorkingCopy ? '@ ' : ''}</span>
-                    <button
-                      className="describe-btn"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        send('describeChange', { changeId: change.changeId });
-                      }}
-                    >
-                      Describe
-                    </button>
-                  </>
-                )}
-                {isDragSource && dragBranchCount > 1 ? (
-                  <span className="drag-badge">Moving {dragBranchCount} commits</span>
-                ) : null}
-                <span className="bookmarks" onClick={(event) => {
-                  event.stopPropagation();
-                  send('manageBookmarks', { changeId: change.changeId });
-                }}>
-                  {localBookmarks.map((name) => {
-                    const isConflicted = name.endsWith('*');
-                    const cleanName = isConflicted ? name.slice(0, -1) : name;
-                    const bookmarkInfo = state.bookmarks.find((b) => b.name === cleanName && !b.isRemote);
-                    const isTracked = bookmarkInfo?.isTracked ?? false;
-                    const pr = state.prInfo[cleanName];
-
-                    let badgeClass = 'badge local';
-                    let tooltip = 'Local bookmark (not pushed)';
-                    if (pr) {
-                      // Only show "merged" if branch no longer exists on remote (not tracked)
-                      // If still tracked, the branch is still active despite the merged PR
-                      if (pr.state === 'merged' && !isTracked) {
-                        badgeClass = 'badge merged';
-                        tooltip = `PR #${pr.number} merged`;
-                      } else if (pr.state === 'merged' && isTracked) {
-                        badgeClass = 'badge tracked';
-                        tooltip = `PR #${pr.number} merged - branch still active`;
-                      } else if (pr.state === 'open' || pr.state === 'draft') {
-                        badgeClass = pr.state === 'draft' ? 'badge pr-draft' : 'badge pr-open';
-                        tooltip = `PR #${pr.number} ${pr.state}`;
-                      } else if (pr.state === 'closed') {
-                        badgeClass = 'badge pr-closed';
-                        tooltip = `PR #${pr.number} closed`;
-                      }
-                    } else if (isTracked) {
-                      badgeClass = 'badge tracked';
-                      tooltip = 'Pushed to remote (no PR)';
-                    }
-
-                    const isDiverged = isConflicted || bookmarkInfo?.isConflicted;
-                    if (isDiverged) {
-                      tooltip += ' - DIVERGED from remote';
-                    }
-
-                    return (
-                      <span
-                        key={name}
-                        className={`${badgeClass}${pr?.url ? ' clickable' : ''}`}
-                        draggable
-                        title={tooltip}
-                        onDragStart={(event) =>
-                          handleDragStart(event, { type: 'bookmark', bookmarkName: cleanName, fromChangeId: change.changeId })
-                        }
-                        onContextMenu={(event) => showBookmarkMenu(event, cleanName, change.changeId, isTracked)}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (pr?.url) {
-                            send('openUrl', { url: pr.url });
-                          }
-                        }}
-                      >
-                        {cleanName}
-                        {pr ? <span className="codicon codicon-git-merge badge-pr-icon" title="Pull request" /> : null}
-                        {isTracked ? <span className="codicon codicon-cloud badge-cloud-icon" title="Synced" /> : null}
-                        {isDiverged ? <span className="codicon codicon-cloud badge-cloud-icon diverged" title="Diverged" /> : null}
-                      </span>
-                    );
-                  })}
-                  {remoteBookmarks.map((name) => {
-                    const localName = name.split('@')[0];
-                    if (localBookmarks.includes(localName) || localBookmarks.includes(`${localName}*`)) {
-                      return null;
-                    }
-                    // Check for PR info using the base bookmark name
-                    const pr = state.prInfo[localName];
-
-                    let badgeClass = 'badge remote';
-                    let tooltip = 'Remote only';
-                    if (pr) {
-                      // Remote bookmark exists, so branch is still active - don't show as merged
-                      if (pr.state === 'merged') {
-                        // Keep as remote since the branch still exists
-                        tooltip = `PR #${pr.number} merged - branch still active`;
-                      } else if (pr.state === 'open' || pr.state === 'draft') {
-                        badgeClass = pr.state === 'draft' ? 'badge pr-draft' : 'badge pr-open';
-                        tooltip = `PR #${pr.number} ${pr.state}`;
-                      } else if (pr.state === 'closed') {
-                        badgeClass = 'badge pr-closed';
-                        tooltip = `PR #${pr.number} closed`;
-                      }
-                    }
-
-                    return (
-                      <span
-                        key={name}
-                        className={`${badgeClass}${pr?.url ? ' clickable' : ''}`}
-                        title={tooltip}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (pr?.url) {
-                            send('openUrl', { url: pr.url });
-                          }
-                        }}
-                      >
-                        {name}
-                        {pr ? <span className="codicon codicon-git-merge badge-pr-icon" title="Pull request" /> : null}
-                        {!pr ? <span className="codicon codicon-cloud badge-cloud-icon" title="Remote" /> : null}
-                      </span>
-                    );
-                  })}
-                </span>
-                <span className="change-actions">
-                  <button
-                    className="icon-button small"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      send('newChangeFrom', { changeId: change.changeId });
-                    }}
-                  >
-                    <span className="codicon codicon-add" />
-                  </button>
-                </span>
-              </div>
-              {isExpanded && files.length > 0 ? (
-                <div className="files">
-                  {graphInfo ? (() => {
-                    const gutter = renderFilesGutterSvg(graphInfo);
-                    return (
-                      <>
-                        <div
-                          className="files-gutter"
-                          style={{ width: gutter.width }}
-                          dangerouslySetInnerHTML={{ __html: gutter.svg }}
-                        />
-                        <div className="files-list" style={{ marginLeft: `${gutter.width + 6}px` }}>
-                          {files.map((file) => (
-                            <div
-                              key={file.path}
-                              className="file"
-                              draggable
-                              title="Drag to move to another change"
-                              onDragStart={(event) =>
-                                handleDragStart(event, { type: 'file', filePath: file.path, fromChangeId: change.changeId })
-                              }
-                            >
-                              <span className={`file-icon ${file.status}`}>
-                                <span className={`codicon ${getFileIcon(file.status)}`} />
-                              </span>
-                              <span
-                                className="file-path"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  send('openDiff', { path: file.path, revision: isWorkingCopy ? undefined : change.commitIdShort });
-                                }}
-                              >
-                                {file.path}
-                              </span>
-                              <button
-                                className="icon-button small"
-                                title="Open File"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  send('openFile', { path: file.path });
-                                }}
-                              >
-                                <span className="codicon codicon-go-to-file" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    );
-                  })() : (
-                    <div className="files-list">
-                      {files.map((file) => (
-                        <div
-                          key={file.path}
-                          className="file"
-                          draggable
-                          title="Drag to move to another change"
-                          onDragStart={(event) =>
-                            handleDragStart(event, { type: 'file', filePath: file.path, fromChangeId: change.changeId })
-                          }
-                        >
-                          <span className={`file-icon ${file.status}`}>
-                            <span className={`codicon ${getFileIcon(file.status)}`} />
-                          </span>
-                          <span
-                            className="file-path"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              send('openDiff', { path: file.path, revision: isWorkingCopy ? undefined : change.commitIdShort });
-                            }}
-                          >
-                            {file.path}
-                          </span>
-                          <button
-                            className="icon-button small"
-                            title="Open File"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              send('openFile', { path: file.path });
-                            }}
-                          >
-                            <span className="codicon codicon-go-to-file" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+            return (
+              <ChangeRow
+                key={change.commitId}
+                change={change}
+                graphMarkup={graphMarkup}
+                graphInfo={graphInfo}
+                isExpanded={isExpanded}
+                isWorkingCopy={isWorkingCopy}
+                files={files}
+                hasFiles={hasFiles}
+                hasDescription={hasDescription}
+                localBookmarks={localBookmarks}
+                remoteBookmarks={remoteBookmarks}
+                isDragSource={isDragSource}
+                isDragDescendant={isDragDescendant}
+                isDragTarget={isDragTarget}
+                dragBranchCount={dragBranchCount}
+                handleToggle={handleToggle}
+                handleContextMenu={handleContextMenu}
+                handleDragStart={handleDragStart}
+                handleDrop={handleDrop}
+                setDragTargetChangeId={setDragTargetChangeId}
+                activeFile={activeFile}
+                setActiveFile={setActiveFile}
+                showBookmarkMenu={showBookmarkMenu}
+                send={send}
+                state={state}
+              />
+            );
+          })
+        )}
+      </div>
+      <DragOverlay>
+        {activeDrag ? (
+          <div className="drag-overlay">
+            <div className="drag-overlay-row">
+                <span className={`codicon ${
+                activeDrag.type === 'change'
+                  ? 'codicon-git-commit'
+                  : activeDrag.type === 'file'
+                    ? 'codicon-file'
+                    : 'codicon-tag'
+              } drag-overlay-icon`} />
+              <div className="drag-overlay-content">
+                <div className="drag-overlay-title">
+                  {activeDrag.type === 'change'
+                    ? (state.changes.find((item) => item.changeId === activeDrag.changeId)?.description || 'Change')
+                    : activeDrag.type === 'file'
+                      ? (activeDrag.filePath ?? 'File')
+                      : (activeDrag.bookmarkName ?? 'Bookmark')}
                 </div>
-              ) : null}
+                {activeDrag.type === 'change' && dragBranchCommitIds.size > 1 ? (
+                  <div className="drag-overlay-subtitle">{dragBranchCommitIds.size} commits</div>
+                ) : (
+                  <div className="drag-overlay-subtitle">
+                    {activeDrag.type === 'file' ? 'Move file' : activeDrag.type === 'bookmark' ? 'Move bookmark' : 'Move change'}
+                  </div>
+                )}
+              </div>
             </div>
-          );
-        })
-      )}
+          </div>
+        ) : null}
+      </DragOverlay>
       <div
         id="context-menu"
         className="context-menu"
@@ -970,7 +1252,7 @@ function App() {
         <div className="context-menu-separator menu-bookmark"></div>
         <div className="context-menu-item danger menu-bookmark" data-action="delete-bookmark">Delete Bookmark</div>
       </div>
-    </div>
+    </DndContext>
   );
 }
 

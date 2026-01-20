@@ -428,21 +428,69 @@ export class JJCli {
    * Get the remote URL (origin)
    */
   async getRemoteUrl(): Promise<string | null> {
-    const result = await this.execute(['git', 'remote', 'list']);
-    if (!result.success) {
-      return null;
+    let result = await this.execute(['git', 'remote', 'list']);
+    if (!result.success || result.stdout.trim().length === 0) {
+      const gitResult = await new Promise<CommandResult>((resolve) => {
+        const proc = spawn('git', ['remote', '-v'], { cwd: this.workspaceRoot });
+        let stdout = '';
+        let stderr = '';
+        proc.stdout.on('data', (data) => {
+          stdout += data.toString();
+        });
+        proc.stderr.on('data', (data) => {
+          stderr += data.toString();
+        });
+        proc.on('error', (error) => {
+          resolve({ success: false, stdout: '', stderr: String(error), exitCode: -1 });
+        });
+        proc.on('close', (code) => {
+          resolve({ success: code === 0, stdout, stderr, exitCode: code ?? -1 });
+        });
+      });
+      if (!gitResult.success) {
+        return null;
+      }
+      result = gitResult;
     }
+    console.log('[open-jj] git remote list output:', result.stdout.trim());
     // Parse output: "origin https://github.com/..." or "origin git@github.com:..."
     const lines = result.stdout.trim().split('\n');
+    const extractRemote = (line: string): string | null => {
+      const githubMatch = line.match(/(https?:\/\/github\.com\/\S+|git@github\.com:\S+)/);
+      if (githubMatch) {
+        return githubMatch[1].trim();
+      }
+      const urlMatch = line.match(/(https?:\/\/\S+|git@\S+:\S+)/);
+      return urlMatch ? urlMatch[1].trim() : null;
+    };
+    const fromWholeOutput = extractRemote(result.stdout);
+    if (fromWholeOutput) {
+      return fromWholeOutput;
+    }
     for (const line of lines) {
-      const match = line.match(/^origin\s+(.+)$/);
+      const match = line.match(/^origin[:\s]+(.+)$/);
       if (match) {
-        return match[1];
+        const candidate = match[1].trim();
+        const extracted = extractRemote(candidate);
+        if (extracted) {
+          return extracted;
+        }
+        const remoteMatch = candidate.match(/^(.*?)(\s+\((fetch|push)\))?$/);
+        return (remoteMatch?.[1] ?? candidate).trim();
       }
     }
     // Return first remote if no origin
-    const firstMatch = lines[0]?.match(/^\S+\s+(.+)$/);
-    return firstMatch ? firstMatch[1] : null;
+    const firstMatch = lines[0]?.match(/^\S+[:\s]+(.+)$/);
+    if (!firstMatch) {
+      return null;
+    }
+    const candidate = firstMatch[1].trim();
+    const extracted = extractRemote(candidate);
+    if (extracted) {
+      return extracted;
+    }
+    const remoteMatch = candidate.match(/^(.*?)(\s+\((fetch|push)\))?$/);
+    return (remoteMatch?.[1] ?? candidate).trim();
   }
 
   /**

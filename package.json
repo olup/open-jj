@@ -2,7 +2,7 @@
   "name": "open-jj",
   "displayName": "OPEN JJ",
   "description": "Jujutsu (jj) version control integration for VS Code",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "publisher": "olup",
   "license": "MIT",
   "engines": {
@@ -247,14 +247,14 @@
     "test:unit": "vitest run"
   },
   "devDependencies": {
-    "@vscode/vsce": "^2.26.1",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@types/node": "^20.10.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@types/node": "^20.10.0",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@vscode/vsce": "^2.26.1",
     "eslint": "^8.54.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -263,6 +263,7 @@
     "vitest": "^1.6.0"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
     "@vscode/codicons": "^0.0.44"
   }
 }

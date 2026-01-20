@@ -34,6 +34,10 @@ export class Repository implements vscode.Disposable {
   private _bookmarks: Bookmark[] = [];
   private _prInfo: Map<string, PullRequestInfo> = new Map();
 
+  get isRefreshing(): boolean {
+    return this._refreshInFlight || this._refreshQueued || this._refreshTimer !== null;
+  }
+
   constructor(workspacePath: string, rootPath: string, hasGit: boolean, isColocated: boolean, githubService?: GitHubService) {
     this._workspacePath = workspacePath;
     this._rootPath = rootPath;
@@ -49,13 +53,11 @@ export class Repository implements vscode.Disposable {
    * Initialize GitHub info from remote URL (call after construction)
    */
   async initGitHubInfo(): Promise<void> {
-    if (this._hasGit) {
-      const remoteUrl = await this.getRemoteUrl();
-      console.log('[open-jj] Remote URL:', remoteUrl);
-      if (remoteUrl) {
-        this._githubInfo = GitHubService.parseGitHubUrl(remoteUrl);
-        console.log('[open-jj] GitHub info:', this._githubInfo);
-      }
+    const remoteUrl = await this.getRemoteUrl();
+    console.log('[open-jj] Remote URL:', remoteUrl);
+    if (remoteUrl) {
+      this._githubInfo = GitHubService.parseGitHubUrl(remoteUrl);
+      console.log('[open-jj] GitHub info:', this._githubInfo);
     }
   }
 
@@ -263,22 +265,35 @@ export class Repository implements vscode.Disposable {
       return;
     }
 
-    // Get all tracked local bookmarks and remote-only bookmarks
-    // Remote-only bookmarks (no local counterpart) may also have PRs
-    const localTrackedNames = new Set(
-      this._bookmarks.filter(b => !b.isRemote && b.isTracked).map(b => b.name)
-    );
-    const remoteOnlyNames = this._bookmarks
-      .filter(b => b.isRemote && !localTrackedNames.has(b.name))
-      .map(b => b.name);
+    const normalizeBookmarkName = (name: string): string => {
+      const withoutConflict = name.endsWith('*') ? name.slice(0, -1) : name;
+      const atIndex = withoutConflict.indexOf('@');
+      return atIndex === -1 ? withoutConflict : withoutConflict.slice(0, atIndex);
+    };
 
-    const trackedBookmarks = [...localTrackedNames, ...remoteOnlyNames];
+    const candidateBookmarks = new Set<string>();
+    for (const bookmark of this._bookmarks) {
+      const normalized = normalizeBookmarkName(bookmark.name);
+      if (normalized) {
+        candidateBookmarks.add(normalized);
+      }
+    }
 
-    console.log('[open-jj] Tracked bookmarks for PR fetch:', trackedBookmarks);
-    console.log('[open-jj] Remote-only bookmarks included:', remoteOnlyNames);
+    for (const change of this._log) {
+      for (const name of change.bookmarks) {
+        const normalized = normalizeBookmarkName(name);
+        if (normalized) {
+          candidateBookmarks.add(normalized);
+        }
+      }
+    }
+
+    const trackedBookmarks = Array.from(candidateBookmarks);
+
+    console.log('[open-jj] Bookmark candidates for PR fetch:', trackedBookmarks);
 
     if (trackedBookmarks.length === 0) {
-      console.log('[open-jj] No tracked bookmarks, skipping PR fetch');
+      console.log('[open-jj] No bookmark candidates, skipping PR fetch');
       return;
     }
 

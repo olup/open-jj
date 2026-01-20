@@ -81,6 +81,11 @@ body {
   color: var(--vscode-descriptionForeground);
 }
 
+.empty-sub {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
 .change {
   /* Node styling is handled by SVG */
 }
@@ -184,6 +189,14 @@ body {
   flex-shrink: 0;
 }
 
+.graph-node {
+  cursor: grab;
+}
+
+.graph-node:active {
+  cursor: grabbing;
+}
+
 /* Drag and drop styles */
 .log.dragging-change .change {
   transition: background 120ms ease, opacity 120ms ease;
@@ -201,34 +214,17 @@ body {
   opacity: 0.6;
 }
 
-.change.drag-source {
-  --graph-line-color: var(--vscode-textLink-foreground);
-  --graph-node-stroke: var(--vscode-textLink-foreground);
-  --graph-node-fill: var(--vscode-textLink-foreground);
+.change.drag-source,
+.change.drag-descendant {
+  opacity: 0.5;
 }
 
 .change.drag-source .graph-node svg {
-  transform: scale(1.05);
-  filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--vscode-textLink-foreground) 35%, transparent));
-}
-
-.change.drag-descendant {
-  --graph-line-color: var(--vscode-textLink-foreground);
-  --graph-node-stroke: var(--vscode-textLink-foreground);
-}
-
-.change.drag-target {
-  --graph-line-color: var(--vscode-textLink-foreground);
-}
-
-.change.drag-source .change-header,
-.change.drag-descendant .change-header {
-  background: var(--vscode-list-inactiveSelectionBackground);
+  transform: scale(1.02);
 }
 
 .change.drag-target .change-header {
   background: var(--vscode-list-dropBackground);
-  outline: 1px solid var(--vscode-focusBorder);
 }
 
 .drag-badge {
@@ -243,25 +239,73 @@ body {
   white-space: nowrap;
 }
 
+.drag-overlay {
+  display: inline-flex;
+  flex-direction: column;
+  max-width: 360px;
+  width: max-content;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  border: 1px solid color-mix(in srgb, var(--vscode-foreground) 15%, transparent);
+  box-shadow: 0 10px 24px color-mix(in srgb, #000 35%, transparent);
+}
+
+.drag-overlay-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drag-overlay-icon {
+  font-size: 14px;
+  color: var(--vscode-textLink-foreground);
+}
+
+.drag-overlay-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.drag-overlay-title {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drag-overlay-subtitle {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
 .change-header.drag-over {
   background: var(--vscode-list-dropBackground);
-  outline: 1px dashed var(--vscode-focusBorder);
 }
 
-.badge[draggable="true"] {
+.badge.draggable {
   cursor: grab;
 }
 
-.badge[draggable="true"]:active {
+.badge.draggable:active {
   cursor: grabbing;
 }
 
-.file[draggable="true"] {
+.file {
   cursor: grab;
 }
 
-.file[draggable="true"]:active {
+.file:active {
   cursor: grabbing;
+}
+
+.file.active {
+  background: color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 45%, transparent);
+  border-radius: 4px;
 }
 
 .change-desc {

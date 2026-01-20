@@ -13,11 +13,12 @@ type WebviewState = {
   hasRepository: boolean;
   changes: SerializedChange[];
   workingCopyFiles: FileChange[];
-  expandedCommitIds: string[];
+  expandedChangeIds: string[];
   changeFiles: Record<string, FileChange[]>;
   graphInfo: Record<string, GraphInfo>;
   prInfo: Record<string, PullRequestInfo>;
   bookmarks: Bookmark[];
+  isRefreshing: boolean;
 };
 
 interface ChangeFilesEntry {
@@ -135,6 +136,14 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       this._disposables
     );
 
+    this._disposables.push(
+      vscode.window.onDidChangeActiveTextEditor((editor) => {
+        this._postActiveFile(editor);
+      })
+    );
+
+    this._postActiveFile(vscode.window.activeTextEditor);
+
     this.refresh();
   }
 
@@ -172,7 +181,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
     const pending: Promise<void>[] = [];
     for (const changeId of changeIds) {
-      const change = this._findChangeByCommitId(changeId);
+      const change = this._findChange(changeId);
       if (!change || change.isWorkingCopy) {
         continue;
       }
@@ -203,11 +212,12 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         hasRepository: false,
         changes: [],
         workingCopyFiles: [],
-        expandedCommitIds: [],
+        expandedChangeIds: [],
         changeFiles: {},
         graphInfo: {},
         prInfo: {},
         bookmarks: [],
+        isRefreshing: false,
       };
     }
 
@@ -221,10 +231,10 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     const changeFiles: Record<string, FileChange[]> = {};
-    for (const commitId of this._expandedChanges) {
-      const files = this._changeFiles.get(commitId);
+    for (const changeId of this._expandedChanges) {
+      const files = this._changeFiles.get(changeId);
       if (files) {
-        changeFiles[commitId] = files;
+        changeFiles[changeId] = files;
       }
     }
 
@@ -237,11 +247,12 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       hasRepository: true,
       changes: changes.map((change) => this._serializeChange(change)),
       workingCopyFiles: this._repository.changedFiles ?? [],
-      expandedCommitIds: Array.from(this._expandedChanges),
+      expandedChangeIds: Array.from(this._expandedChanges),
       changeFiles,
       graphInfo,
       prInfo,
       bookmarks: this._repository.bookmarks ?? [],
+      isRefreshing: this._repository.isRefreshing,
     };
   }
 
@@ -249,7 +260,83 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     if (!this._view) {
       return;
     }
+    if (this._repository) {
+      const fileCount = this._repository.changedFiles?.length ?? 0;
+      this._view.badge = fileCount > 0
+        ? { value: fileCount, tooltip: `Working copy files: ${fileCount}` }
+        : undefined;
+    } else {
+      this._view.badge = undefined;
+    }
     void this._view.webview.postMessage({ type: 'state', state: this._getWebviewState() });
+    this._postActiveFile(vscode.window.activeTextEditor);
+  }
+
+  private _postActiveFile(editor?: vscode.TextEditor): void {
+    if (!this._view) {
+      return;
+    }
+    if (!this._repository || !editor) {
+      void this._view.webview.postMessage({ type: 'activeFile', changeId: null, path: null });
+      return;
+    }
+
+    const repo = this._repository;
+    const uri = editor.document.uri;
+    let changeId: string | null = null;
+    let path: string | null = null;
+
+    if (uri.scheme === 'jj-original') {
+      try {
+        const query = JSON.parse(uri.query) as { path?: string; revision?: string };
+        if (query.path) {
+          path = repo.getRelativePath(query.path);
+        }
+        if (query.revision) {
+          const change = this._findChangeByCommitId(query.revision);
+          if (change) {
+            changeId = change.changeId;
+          }
+        }
+      } catch {
+        // Ignore malformed query.
+      }
+    } else if (uri.scheme === 'file') {
+      const relPath = repo.getRelativePath(uri.fsPath);
+      if (!relPath.startsWith('..')) {
+        path = relPath;
+        const isInWorkingCopy = (repo.changedFiles ?? []).some(
+          (file) => file.path === relPath || file.originalPath === relPath
+        );
+        if (isInWorkingCopy && repo.currentChange) {
+          changeId = repo.currentChange.changeId;
+        }
+      }
+    }
+
+    if (!changeId && !path) {
+      const diffEditor = vscode.window.visibleTextEditors.find(
+        (visible) => visible.document.uri.scheme === 'jj-original'
+      );
+      if (diffEditor) {
+        try {
+          const query = JSON.parse(diffEditor.document.uri.query) as { path?: string; revision?: string };
+          if (query.path) {
+            path = repo.getRelativePath(query.path);
+          }
+          if (query.revision) {
+            const change = this._findChangeByCommitId(query.revision);
+            if (change) {
+              changeId = change.changeId;
+            }
+          }
+        } catch {
+          // Ignore malformed query.
+        }
+      }
+    }
+
+    void this._view.webview.postMessage({ type: 'activeFile', changeId, path });
   }
 
   private async _handleMessage(message: { command: string; [key: string]: unknown }): Promise<void> {
@@ -268,16 +355,16 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     try {
     switch (message.command) {
       case 'toggleChange':
-        const commitId = message.commitId as string;
-        if (this._expandedChanges.has(commitId)) {
-          this._expandedChanges.delete(commitId);
+        const changeId = message.changeId as string;
+        if (this._expandedChanges.has(changeId)) {
+          this._expandedChanges.delete(changeId);
         } else {
-          this._expandedChanges.add(commitId);
+          this._expandedChanges.add(changeId);
           // Load files for this change if not working copy
-          const change = this._findChangeByCommitId(commitId);
+          const change = this._findChange(changeId);
           if (change && !change.isWorkingCopy) {
             this._changeFiles
-              .ensure(commitId, () => repo.getFilesForRevision(change.commitIdShort, change.hasConflict), false)
+              .ensure(changeId, () => repo.getFilesForRevision(change.commitIdShort, change.hasConflict), false)
               .then(() => this._postState());
           }
         }
@@ -322,6 +409,12 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${diffPath} (diff)`);
         break;
 
+      case 'revertFile':
+        const revertPath = message.path as string;
+        const revertUri = vscode.Uri.file(repo.getAbsolutePath(revertPath));
+        vscode.commands.executeCommand('open-jj.revert', { resourceUri: revertUri });
+        break;
+
       case 'newChange':
         vscode.commands.executeCommand('open-jj.new');
         break;
@@ -336,6 +429,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
       case 'ready':
         this._postState();
+        this._postActiveFile(vscode.window.activeTextEditor);
         break;
 
       case 'init':
@@ -367,13 +461,9 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         const fromChange = message.fromChangeId as string;
         const toChange = message.targetChangeId as string;
         vscode.commands.executeCommand('open-jj.moveFile', { filePath: moveFilePath, fromChangeId: fromChange, toChangeId: toChange });
-        const fromCommitIds = this._findCommitsByChangeId(fromChange).map((c) => c.commitId);
-        const toCommitIds = this._findCommitsByChangeId(toChange).map((c) => c.commitId);
-        const commitIds = Array.from(new Set([...fromCommitIds, ...toCommitIds]));
-        if (commitIds.length > 0) {
-          this._changeFiles.invalidate(commitIds);
-          this._prefetchChanges(commitIds, true);
-        }
+        const changeIds = Array.from(new Set([fromChange, toChange]));
+        this._changeFiles.invalidate(changeIds);
+        this._prefetchChanges(changeIds, true);
         break;
 
       case 'pushBookmark':
