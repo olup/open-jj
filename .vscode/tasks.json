@@ -4,11 +4,8 @@
     {
       "label": "build-all",
       "type": "shell",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "source ~/.nvm/nvm.sh && nvm use --lts >/dev/null && npm run build:webview && npm run compile"
-      ],
+      "command": "zsh",
+      "args": ["-ilc", "pnpm run build:webview && pnpm run compile"],
       "problemMatcher": "$tsc",
       "presentation": {
         "reveal": "silent"
@@ -21,29 +18,21 @@
     {
       "label": "watch",
       "type": "shell",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "source ~/.nvm/nvm.sh && nvm use --lts >/dev/null && npm run watch"
-      ],
+      "command": "zsh",
+      "args": ["-ilc", "pnpm run watch"],
       "problemMatcher": "$tsc-watch",
       "isBackground": true,
       "presentation": {
         "reveal": "never"
       },
-      "dependsOn": [
-        "watch:webview"
-      ],
+      "dependsOn": ["watch:webview"],
       "dependsOrder": "parallel"
     },
     {
       "label": "watch:webview",
       "type": "shell",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "source ~/.nvm/nvm.sh && nvm use --lts >/dev/null && npm run watch:webview"
-      ],
+      "command": "zsh",
+      "args": ["-ilc", "pnpm run watch:webview"],
       "problemMatcher": [],
       "isBackground": true,
       "presentation": {
@@ -53,11 +42,8 @@
     {
       "label": "compile",
       "type": "shell",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "source ~/.nvm/nvm.sh && nvm use --lts >/dev/null && npm run compile"
-      ],
+      "command": "zsh",
+      "args": ["-ilc", "pnpm run compile"],
       "problemMatcher": "$tsc",
       "group": "build"
     }

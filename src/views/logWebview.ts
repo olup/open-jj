@@ -261,7 +261,8 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       return;
     }
     if (this._repository) {
-      const fileCount = this._repository.changedFiles?.length ?? 0;
+      const currentChange = this._repository.currentChange;
+      const fileCount = currentChange?.isEmpty ? 0 : (this._repository.changedFiles?.length ?? 0);
       this._view.badge = fileCount > 0
         ? { value: fileCount, tooltip: `Working copy files: ${fileCount}` }
         : undefined;
@@ -401,12 +402,24 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         const diffPath = message.path as string;
         const revision = message.revision as string | undefined;
         const absPath = repo.getAbsolutePath(diffPath);
-        const rightUri = vscode.Uri.file(absPath);
-        const leftUri = rightUri.with({
-          scheme: 'jj-original',
-          query: JSON.stringify({ path: absPath, revision }),
-        });
-        vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${diffPath} (diff)`);
+        if (revision) {
+          const leftUri = vscode.Uri.file(absPath).with({
+            scheme: 'jj-original',
+            query: JSON.stringify({ path: absPath, revision, useParent: true }),
+          });
+          const rightUri = vscode.Uri.file(absPath).with({
+            scheme: 'jj-original',
+            query: JSON.stringify({ path: absPath, revision, useParent: false }),
+          });
+          vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${diffPath} (change)`);
+        } else {
+          const rightUri = vscode.Uri.file(absPath);
+          const leftUri = rightUri.with({
+            scheme: 'jj-original',
+            query: JSON.stringify({ path: absPath, revision }),
+          });
+          vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, `${diffPath} (diff)`);
+        }
         break;
 
       case 'revertFile':
@@ -548,7 +561,12 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   private _findChangeByCommitId(commitId: string): Change | undefined {
-    return this._repository?.log.find(c => c.commitId === commitId || c.commitIdShort === commitId);
+    return this._repository?.log.find(c =>
+      c.commitId === commitId ||
+      c.commitIdShort === commitId ||
+      c.commitId.startsWith(commitId) ||
+      commitId.startsWith(c.commitIdShort)
+    );
   }
 
   private _findCommitsByChangeId(changeId: string): Change[] {
@@ -626,8 +644,8 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     const graphMarkup = this._renderNodeSvg(change, isFirst, isLast, graphInfo);
     const hasDescription = change.description && change.description !== '(no description)';
     const descriptionHtml = hasDescription
-      ? `<span class="change-desc">${isWorkingCopy ? '@ ' : ''}${this._escapeHtml(change.description)}</span>`
-      : `<span class="change-desc placeholder">${isWorkingCopy ? '@ ' : ''}</span>
+      ? `<span class="change-desc">${this._escapeHtml(change.description)}</span>`
+      : `<span class="change-desc placeholder"></span>
          <button class="describe-btn" data-action="describe-change" data-change-id="${change.changeId}" title="Describe change">Describe</button>`;
 
     return `

@@ -14,6 +14,7 @@ let statusBar: StatusBar | null = null;
 let logWebviewProvider: LogWebviewProvider | null = null;
 let bookmarksTreeProvider: BookmarksTreeProvider | null = null;
 let originalContentProvider: JJOriginalContentProvider | null = null;
+let lastFocusFetchAt = 0;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   console.log('open-jj extension is activating...');
@@ -57,6 +58,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await initializeRepository(context);
     })
   );
+
+  const fetchIntervalMs = 5 * 60 * 1000;
+
+  // Fetch on window focus (throttled)
+  context.subscriptions.push(
+    vscode.window.onDidChangeWindowState(async (state) => {
+      if (!state.focused || !repository) {
+        return;
+      }
+      const now = Date.now();
+      if (now - lastFocusFetchAt < fetchIntervalMs) {
+        return;
+      }
+      lastFocusFetchAt = now;
+      await repository.fetch();
+    })
+  );
+
+  // Periodic fetch
+  const interval = setInterval(async () => {
+    if (!repository) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastFocusFetchAt < fetchIntervalMs) {
+      return;
+    }
+    lastFocusFetchAt = now;
+    await repository.fetch();
+  }, fetchIntervalMs);
+  context.subscriptions.push({ dispose: () => clearInterval(interval) });
 
   console.log('open-jj extension activated');
 }
@@ -112,6 +144,7 @@ function setNoRepository(): void {
   logWebviewProvider?.setRepository(null);
   bookmarksTreeProvider?.setRepository(null);
   vscode.commands.executeCommand('setContext', 'open-jj.hasRepository', false);
+  vscode.commands.executeCommand('setContext', 'open-jj.isRefreshing', false);
 }
 
 function registerCoreCommands(context: vscode.ExtensionContext): void {
@@ -147,7 +180,19 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
   // Refresh
   context.subscriptions.push(
     vscode.commands.registerCommand('open-jj.refresh', async () => {
-      await repository?.refresh({ refreshPrInfo: true });
+      if (!repository) {
+        return;
+      }
+      const fetched = await repository.fetch();
+      if (!fetched) {
+        vscode.window.showErrorMessage('Fetch failed');
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('open-jj.refreshing', async () => {
+      // No-op placeholder for loading state icon.
     })
   );
 
@@ -296,7 +341,10 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
         () => repo.edit(change.changeIdShort, { ignoreImmutable: true })
       );
       if (success) {
-        vscode.window.showInformationMessage(`Now editing ${change.changeIdShort}`);
+        const description = change.description && change.description !== '(no description)'
+          ? ` - ${change.description}`
+          : '';
+        vscode.window.showInformationMessage(`Now editing ${change.changeIdShort}${description}`);
       } else {
         vscode.window.showErrorMessage('Failed to edit change');
       }

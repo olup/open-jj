@@ -178,6 +178,10 @@ export class Repository implements vscode.Disposable {
       this._refreshPrInfoRequested = true;
     }
 
+    if (!this.isRefreshing) {
+      vscode.commands.executeCommand('setContext', 'open-jj.isRefreshing', true);
+    }
+
     if (!this._refreshPromise) {
       this._refreshPromise = new Promise((resolve) => {
         this._refreshResolve = resolve;
@@ -225,6 +229,7 @@ export class Repository implements vscode.Disposable {
     const resolve = this._refreshResolve;
     this._refreshPromise = null;
     this._refreshResolve = null;
+    vscode.commands.executeCommand('setContext', 'open-jj.isRefreshing', false);
     resolve?.();
   }
 
@@ -431,6 +436,13 @@ export class Repository implements vscode.Disposable {
    */
   async getOriginalFileContent(relativePath: string, revision?: string): Promise<string | null> {
     return this.cli.catFile(relativePath, revision);
+  }
+
+  /**
+   * Get file content from an exact revision (not parent)
+   */
+  async getFileContentAtRevision(relativePath: string, revision?: string): Promise<string | null> {
+    return this.cli.catFile(relativePath, revision, { useParent: false });
   }
 
   /**

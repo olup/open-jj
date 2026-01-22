@@ -249,9 +249,11 @@ export class JJCli {
   /**
    * Get file content from a specific revision (parent of working copy by default)
    */
-  async catFile(path: string, revision?: string): Promise<string | null> {
-    // Use @- for parent of working copy, or specified revision's parent
-    const rev = revision ? `${revision}-` : '@-';
+  async catFile(path: string, revision?: string, options?: { useParent?: boolean }): Promise<string | null> {
+    const useParent = options?.useParent ?? true;
+    const rev = revision
+      ? (useParent ? `${revision}-` : revision)
+      : (useParent ? '@-' : '@');
     const result = await this.execute(['file', 'show', '-r', rev, path]);
     if (!result.success) {
       return null;

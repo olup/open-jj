@@ -2,7 +2,7 @@
   "name": "open-jj",
   "displayName": "OPEN JJ",
   "description": "Jujutsu (jj) version control integration for VS Code",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "publisher": "olup",
   "license": "MIT",
   "engines": {
@@ -97,6 +97,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "open-jj.refreshing",
+        "title": "Refreshing",
+        "category": "JJ",
+        "icon": "$(loading)"
+      },
+      {
         "command": "open-jj.fetch",
         "title": "Fetch",
         "category": "JJ",
@@ -139,12 +145,12 @@
       "view/title": [
         {
           "command": "open-jj.refresh",
-          "when": "view == open-jj.logWebview && open-jj.hasRepository",
+          "when": "view == open-jj.logWebview && open-jj.hasRepository && !open-jj.isRefreshing",
           "group": "navigation"
         },
         {
-          "command": "open-jj.fetch",
-          "when": "view == open-jj.logWebview && open-jj.hasRepository",
+          "command": "open-jj.refreshing",
+          "when": "view == open-jj.logWebview && open-jj.hasRepository && open-jj.isRefreshing",
           "group": "navigation"
         },
         {
@@ -264,6 +270,7 @@
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
+    "@radix-ui/react-context-menu": "^2.2.6",
     "@vscode/codicons": "^0.0.44"
   }
 }

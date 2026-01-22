@@ -190,11 +190,19 @@ export class JJOriginalContentProvider implements vscode.TextDocumentContentProv
     }
 
     try {
-      const { path: filePath, revision } = JSON.parse(uri.query);
+      const { path: filePath, revision, useParent } = JSON.parse(uri.query) as {
+        path?: string;
+        revision?: string;
+        useParent?: boolean;
+      };
+      if (!filePath) {
+        return '';
+      }
       const relativePath = this.repository.getRelativePath(filePath);
 
-      // Get file content from parent revision
-      const content = await this.repository.getOriginalFileContent(relativePath, revision);
+      const content = useParent === false
+        ? await this.repository.getFileContentAtRevision(relativePath, revision)
+        : await this.repository.getOriginalFileContent(relativePath, revision);
       return content ?? '';
     } catch {
       return '';

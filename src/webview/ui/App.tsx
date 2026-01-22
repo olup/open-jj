@@ -8,6 +8,7 @@ import {
   useDraggable,
   useDroppable,
 } from '@dnd-kit/core';
+import * as ContextMenu from '@radix-ui/react-context-menu';
 
 type FileChange = {
   path: string;
@@ -403,29 +404,104 @@ type ChangeRowProps = {
   isDragDescendant: boolean;
   isDragTarget: boolean;
   dragBranchCount: number;
+  hasDragDataRef: React.MutableRefObject<{ type: string; [key: string]: string } | null>;
   handleToggle: (commitId: string) => void;
-  handleContextMenu: (event: React.MouseEvent, change: Change) => void;
-  handleDragStart: (event: React.DragEvent, payload: { type: string; [key: string]: string }) => void;
   handleDrop: (event: React.DragEvent, targetChangeId: string) => void;
   setDragTargetChangeId: React.Dispatch<React.SetStateAction<string | null>>;
   activeFile: { changeId: string; path: string } | null;
   setActiveFile: React.Dispatch<React.SetStateAction<{ changeId: string; path: string } | null>>;
-  showBookmarkMenu: (event: React.MouseEvent, bookmarkName: string, changeId: string, isTracked: boolean) => void;
   send: (command: string, data?: Record<string, unknown>) => void;
   state: WebviewState;
 };
+
+type MenuEntry = {
+  type: 'item' | 'separator';
+  label?: string;
+  action?: string;
+  danger?: boolean;
+  visible?: (context: { isWorkingCopy: boolean }) => boolean;
+};
+
+const normalizeMenuEntries = (entries: MenuEntry[]): MenuEntry[] => {
+  const normalized: MenuEntry[] = [];
+  for (const entry of entries) {
+    if (entry.type === 'separator') {
+      if (normalized.length === 0 || normalized[normalized.length - 1].type === 'separator') {
+        continue;
+      }
+    }
+    normalized.push(entry);
+  }
+  while (normalized.length > 0 && normalized[normalized.length - 1].type === 'separator') {
+    normalized.pop();
+  }
+  return normalized;
+};
+
+const changeMenuEntries: MenuEntry[] = [
+  { type: 'item', label: 'Edit Change', action: 'edit-change', visible: ({ isWorkingCopy }) => !isWorkingCopy },
+  { type: 'separator', visible: ({ isWorkingCopy }) => !isWorkingCopy },
+  { type: 'item', label: 'New Change', action: 'new-change-from' },
+  { type: 'item', label: 'Describe Change', action: 'describe-change' },
+  { type: 'item', label: 'Manage Bookmarks', action: 'manage-bookmarks' },
+  { type: 'item', label: 'Squash into Parent', action: 'squash-change' },
+  { type: 'item', label: 'Copy Change ID', action: 'copy-change-id' },
+  { type: 'separator' },
+  { type: 'item', label: 'Abandon Change', action: 'abandon-change', danger: true },
+];
+
+const bookmarkMenuEntries: MenuEntry[] = [
+  { type: 'item', label: 'Push to Remote', action: 'push-bookmark' },
+  { type: 'separator' },
+  { type: 'item', label: 'Create Pull Request', action: 'create-pull-request' },
+  { type: 'item', label: 'Push and Create PR', action: 'push-and-create-pr' },
+  { type: 'item', label: 'Copy Bookmark Name', action: 'copy-bookmark-name' },
+  { type: 'separator' },
+  { type: 'item', label: 'Delete Bookmark', action: 'delete-bookmark', danger: true },
+];
+
+const getChangeMenuEntries = (isWorkingCopy: boolean) => normalizeMenuEntries(
+  changeMenuEntries.filter((entry) => entry.visible?.({ isWorkingCopy }) ?? true)
+);
+
+const normalizedBookmarkMenuEntries = normalizeMenuEntries(bookmarkMenuEntries);
+
+function ContextMenuItems({
+  entries,
+  onAction,
+}: {
+  entries: MenuEntry[];
+  onAction: (action: string) => void;
+}) {
+  return (
+    <>
+      {entries.map((entry, index) => (
+        entry.type === 'separator' ? (
+          <ContextMenu.Separator key={`sep-${index}`} className="context-menu-separator" />
+        ) : (
+          <ContextMenu.Item
+            key={entry.action}
+            className={`context-menu-item${entry.danger ? ' danger' : ''}`}
+            onSelect={() => entry.action && onAction(entry.action)}
+          >
+            {entry.label}
+          </ContextMenu.Item>
+        )
+      ))}
+    </>
+  );
+}
 
 type BookmarkBadgeProps = {
   id: string;
   bookmarkName: string;
   className: string;
   title?: string;
-  onContextMenu?: (event: React.MouseEvent) => void;
   onClick?: (event: React.MouseEvent) => void;
   children: React.ReactNode;
 };
 
-function BookmarkBadge({ id, bookmarkName, className, title, onContextMenu, onClick, children }: BookmarkBadgeProps) {
+function BookmarkBadge({ id, bookmarkName, className, title, onClick, children }: BookmarkBadgeProps) {
   const { attributes, listeners, setNodeRef } = useDraggable({
     id,
     data: { type: 'bookmark', bookmarkName },
@@ -436,7 +512,6 @@ function BookmarkBadge({ id, bookmarkName, className, title, onContextMenu, onCl
       ref={setNodeRef}
       className={`${className} draggable`}
       title={title}
-      onContextMenu={onContextMenu}
       onClick={onClick}
       {...attributes}
       {...listeners}
@@ -524,14 +599,12 @@ function ChangeRow({
   isDragDescendant,
   isDragTarget,
   dragBranchCount,
+  hasDragDataRef,
   handleToggle,
-  handleContextMenu,
-  handleDragStart,
   handleDrop,
   setDragTargetChangeId,
   activeFile,
   setActiveFile,
-  showBookmarkMenu,
   send,
   state,
 }: ChangeRowProps) {
@@ -548,6 +621,59 @@ function ChangeRow({
     setDropNodeRef(node);
   };
 
+  const changeMenu = getChangeMenuEntries(isWorkingCopy);
+  const menuBoundary = typeof document === 'undefined' ? undefined : document.documentElement;
+
+  const handleChangeMenuAction = (action: string) => {
+    switch (action) {
+      case 'copy-change-id':
+        copyToClipboard(change.changeId);
+        break;
+      case 'new-change-from':
+        send('newChangeFrom', { changeId: change.changeId });
+        break;
+      case 'describe-change':
+        send('describeChange', { changeId: change.changeId });
+        break;
+      case 'manage-bookmarks':
+        send('manageBookmarks', { changeId: change.changeId });
+        break;
+      case 'edit-change':
+        send('editChange', { changeId: change.changeId });
+        break;
+      case 'squash-change':
+        send('squashChange', { changeId: change.changeId });
+        break;
+      case 'abandon-change':
+        send('abandonChange', { changeId: change.changeId });
+        break;
+      default:
+        break;
+    }
+  };
+
+  const handleBookmarkMenuAction = (action: string, bookmarkName: string) => {
+    switch (action) {
+      case 'copy-bookmark-name':
+        copyToClipboard(bookmarkName);
+        break;
+      case 'push-bookmark':
+        send('pushBookmark', { bookmarkName });
+        break;
+      case 'push-and-create-pr':
+        send('pushAndCreatePr', { bookmarkName });
+        break;
+      case 'create-pull-request':
+        send('createPullRequest', { bookmarkName });
+        break;
+      case 'delete-bookmark':
+        send('deleteBookmark', { bookmarkName });
+        break;
+      default:
+        break;
+    }
+  };
+
   return (
     <div
       className={`change ${isWorkingCopy ? 'working-copy' : ''} ${change.hasConflict ? 'conflict' : ''} ${
@@ -561,9 +687,8 @@ function ChangeRow({
         data-change-id={change.changeId}
         data-commit-id={change.commitId}
         onClick={() => handleToggle(change.changeId)}
-        onContextMenu={(event) => handleContextMenu(event, change)}
         onDragOver={(event) => {
-          const hasDragData = !!dragDataRef.current || event.dataTransfer.types.includes('text/plain');
+          const hasDragData = !!hasDragDataRef.current || event.dataTransfer.types.includes('text/plain');
           if (!hasDragData) {
             return;
           }
@@ -571,7 +696,7 @@ function ChangeRow({
           event.dataTransfer.dropEffect = 'move';
         }}
         onDragEnter={(event) => {
-          const hasDragData = !!dragDataRef.current || event.dataTransfer.types.includes('text/plain');
+          const hasDragData = !!hasDragDataRef.current || event.dataTransfer.types.includes('text/plain');
           if (!hasDragData) {
             return;
           }
@@ -580,7 +705,7 @@ function ChangeRow({
           event.currentTarget.classList.add('drag-over');
         }}
         onDragLeave={(event) => {
-          const hasDragData = !!dragDataRef.current || event.dataTransfer.types.includes('text/plain');
+          const hasDragData = !!hasDragDataRef.current || event.dataTransfer.types.includes('text/plain');
           if (!hasDragData) {
             return;
           }
@@ -590,7 +715,7 @@ function ChangeRow({
           }
         }}
         onDrop={(event) => {
-          const hasDragData = !!dragDataRef.current || event.dataTransfer.types.includes('text/plain');
+          const hasDragData = !!hasDragDataRef.current || event.dataTransfer.types.includes('text/plain');
           if (!hasDragData) {
             return;
           }
@@ -598,47 +723,67 @@ function ChangeRow({
           handleDrop(event, change.changeId);
         }}
       >
-        <span
-          ref={setDragNodeRef}
-          className="graph-node"
-          onDoubleClick={(event) => {
-            event.stopPropagation();
-            send('editChange', { changeId: change.changeId });
-          }}
-          onClick={(event) => event.stopPropagation()}
-          dangerouslySetInnerHTML={{ __html: graphMarkup }}
-          {...attributes}
-          {...listeners}
-        />
-        <span
-          className={`expand-icon codicon ${hasFiles ? '' : 'hidden'} ${
-            isExpanded ? 'codicon-chevron-down' : 'codicon-chevron-right'
-          }`}
-          style={graphInfo ? { marginLeft: -((graphInfo.maxColumns - graphInfo.nodeColumn - 1) * GRAPH_COL_WIDTH) } : undefined}
-        />
-        {hasDescription ? (
-          <span className="change-desc">{isWorkingCopy ? '@ ' : ''}{change.description}</span>
-        ) : (
-          <>
-            <span className="change-desc placeholder">{isWorkingCopy ? '@ ' : ''}</span>
-            <button
-              className="describe-btn"
-              onClick={(event) => {
-                event.stopPropagation();
-                send('describeChange', { changeId: change.changeId });
-              }}
+        <ContextMenu.Root>
+          <ContextMenu.Trigger asChild>
+            <div className="change-header-main">
+              <span
+                ref={setDragNodeRef}
+                className="graph-node"
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                  send('editChange', { changeId: change.changeId });
+                }}
+                onClick={(event) => event.stopPropagation()}
+                dangerouslySetInnerHTML={{ __html: graphMarkup }}
+                {...attributes}
+                {...listeners}
+              />
+              <span
+                className={`expand-icon codicon ${hasFiles ? '' : 'hidden'} ${
+                  isExpanded ? 'codicon-chevron-down' : 'codicon-chevron-right'
+                }`}
+                style={graphInfo ? { marginLeft: -((graphInfo.maxColumns - graphInfo.nodeColumn - 1) * GRAPH_COL_WIDTH) } : undefined}
+              />
+              {hasDescription ? (
+                <span className="change-desc">{change.description}</span>
+              ) : (
+                <>
+                  <span className="change-desc placeholder"></span>
+                  <button
+                    className="describe-btn"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      send('describeChange', { changeId: change.changeId });
+                    }}
+                  >
+                    Describe
+                  </button>
+                </>
+              )}
+              {isDragSource && dragBranchCount > 1 ? (
+                <span className="drag-badge">Moving {dragBranchCount} commits</span>
+              ) : null}
+            </div>
+          </ContextMenu.Trigger>
+          <ContextMenu.Portal>
+            <ContextMenu.Content
+              className="context-menu"
+              sideOffset={4}
+              collisionPadding={12}
+              collisionBoundary={menuBoundary}
+              sticky="always"
             >
-              Describe
-            </button>
-          </>
-        )}
-        {isDragSource && dragBranchCount > 1 ? (
-          <span className="drag-badge">Moving {dragBranchCount} commits</span>
-        ) : null}
-        <span className="bookmarks" onClick={(event) => {
+              <ContextMenuItems entries={changeMenu} onAction={handleChangeMenuAction} />
+            </ContextMenu.Content>
+          </ContextMenu.Portal>
+        </ContextMenu.Root>
+        <span
+          className="bookmarks"
+          onClick={(event) => {
           event.stopPropagation();
           send('manageBookmarks', { changeId: change.changeId });
-        }}>
+          }}
+        >
           {localBookmarks.map((name) => {
             const isConflicted = name.endsWith('*');
             const cleanName = isConflicted ? name.slice(0, -1) : name;
@@ -678,25 +823,43 @@ function ChangeRow({
             }
 
             return (
-              <BookmarkBadge
-                key={name}
-                id={`bookmark:${cleanName}:${change.changeId}`}
-                bookmarkName={cleanName}
-                className={`${badgeClass}${pr?.url ? ' clickable' : ''}`}
-                title={tooltip}
-                onContextMenu={(event) => showBookmarkMenu(event, cleanName, change.changeId, isTracked)}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (pr?.url) {
-                    send('openUrl', { url: pr.url });
-                  }
-                }}
-              >
-                {cleanName}
-                {pr ? <span className="codicon codicon-git-merge badge-pr-icon" title="Pull request" /> : null}
-                {isTracked ? <span className="codicon codicon-cloud badge-cloud-icon" title="Synced" /> : null}
-                {isDiverged ? <span className="codicon codicon-cloud badge-cloud-icon diverged" title="Diverged" /> : null}
-              </BookmarkBadge>
+              <ContextMenu.Root key={name}>
+                <ContextMenu.Trigger asChild>
+                  <span className="bookmark-trigger">
+                    <BookmarkBadge
+                      id={`bookmark:${cleanName}:${change.changeId}`}
+                      bookmarkName={cleanName}
+                      className={`${badgeClass}${pr?.url ? ' clickable' : ''}`}
+                      title={tooltip}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (pr?.url) {
+                          send('openUrl', { url: pr.url });
+                        }
+                      }}
+                    >
+                      {cleanName}
+                      {pr ? <span className="codicon codicon-git-merge badge-pr-icon" title="Pull request" /> : null}
+                      {isTracked ? <span className="codicon codicon-cloud badge-cloud-icon" title="Synced" /> : null}
+                      {isDiverged ? <span className="codicon codicon-cloud badge-cloud-icon diverged" title="Diverged" /> : null}
+                    </BookmarkBadge>
+                  </span>
+                </ContextMenu.Trigger>
+                <ContextMenu.Portal>
+                  <ContextMenu.Content
+                    className="context-menu"
+                    sideOffset={4}
+                    collisionPadding={12}
+                    collisionBoundary={menuBoundary}
+                    sticky="always"
+                  >
+                    <ContextMenuItems
+                      entries={normalizedBookmarkMenuEntries}
+                      onAction={(action) => handleBookmarkMenuAction(action, cleanName)}
+                    />
+                  </ContextMenu.Content>
+                </ContextMenu.Portal>
+              </ContextMenu.Root>
             );
           })}
           {remoteBookmarks.map((name) => {
@@ -808,6 +971,8 @@ function App() {
   const [dragTargetChangeId, setDragTargetChangeId] = useState<string | null>(null);
   const [dragBranchCommitIds, setDragBranchCommitIds] = useState<Set<string>>(new Set());
   const [activeFile, setActiveFile] = useState<{ changeId: string; path: string } | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [activeDrag, setActiveDrag] = useState<{ type: string; changeId?: string; filePath?: string; fromChangeId?: string; bookmarkName?: string } | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
@@ -826,16 +991,17 @@ function App() {
           return;
         }
         if (path) {
-          const workingCopy = state.changes.find((item) => item.isWorkingCopy);
-          const inWorkingCopy = state.workingCopyFiles.some(
+          const currentState = stateRef.current;
+          const workingCopy = currentState.changes.find((item) => item.isWorkingCopy);
+          const inWorkingCopy = currentState.workingCopyFiles.some(
             (file) => file.path === path || file.originalPath === path
           );
           if (workingCopy && inWorkingCopy) {
             setActiveFile({ changeId: workingCopy.changeId, path });
             return;
           }
-          const matchingChangeId = Object.keys(state.changeFiles).find((id) =>
-            state.changeFiles[id]?.some((file) => file.path === path || file.originalPath === path)
+          const matchingChangeId = Object.keys(currentState.changeFiles).find((id) =>
+            currentState.changeFiles[id]?.some((file) => file.path === path || file.originalPath === path)
           );
           if (matchingChangeId) {
             setActiveFile({ changeId: matchingChangeId, path });
@@ -890,146 +1056,6 @@ function App() {
       filesCount: files?.length ?? 0,
     });
     send('toggleChange', { changeId });
-  };
-
-  const handleContextMenu = (event: React.MouseEvent, change: Change) => {
-    event.preventDefault();
-    showContextMenu(event.nativeEvent, change.changeId, change.isWorkingCopy);
-  };
-
-  const showContextMenu = (event: MouseEvent, changeId: string, isWorkingCopy: boolean) => {
-    const menuEvent = new CustomEvent('open-jj:context-menu', {
-      detail: { type: 'change', x: event.pageX, y: event.pageY, changeId, isWorkingCopy },
-    });
-    window.dispatchEvent(menuEvent);
-  };
-
-  const showBookmarkMenu = (event: React.MouseEvent, bookmarkName: string, changeId: string, isTracked: boolean) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const menuEvent = new CustomEvent('open-jj:context-menu', {
-      detail: { type: 'bookmark', x: event.pageX, y: event.pageY, bookmarkName, changeId, isTracked },
-    });
-    window.dispatchEvent(menuEvent);
-  };
-
-  const applyMenuVisibility = (menu: HTMLElement, type: 'change' | 'bookmark', isWorkingCopy: boolean) => {
-    const changeItems = menu.querySelectorAll<HTMLElement>('.menu-change');
-    const bookmarkItems = menu.querySelectorAll<HTMLElement>('.menu-bookmark');
-    changeItems.forEach((item) => {
-      item.style.display = type === 'change' ? '' : 'none';
-    });
-    bookmarkItems.forEach((item) => {
-      item.style.display = type === 'bookmark' ? '' : 'none';
-    });
-
-    const editItem = menu.querySelector<HTMLElement>('[data-action=\"edit-change\"]');
-    if (editItem) {
-      editItem.style.display = type === 'change' && !isWorkingCopy ? '' : 'none';
-    }
-  };
-
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent).detail as {
-        type: 'change' | 'bookmark';
-        x: number;
-        y: number;
-        changeId?: string;
-        isWorkingCopy?: boolean;
-        bookmarkName?: string;
-        isTracked?: boolean;
-      };
-      const menu = document.getElementById('context-menu');
-      if (!menu) {
-        return;
-      }
-      menu.setAttribute('data-type', detail.type);
-      menu.setAttribute('data-x', String(detail.x));
-      menu.setAttribute('data-y', String(detail.y));
-      menu.setAttribute('data-change-id', detail.changeId ?? '');
-      menu.setAttribute('data-working-copy', String(detail.isWorkingCopy ?? false));
-      menu.setAttribute('data-bookmark-name', detail.bookmarkName ?? '');
-      menu.setAttribute('data-tracked', String(detail.isTracked ?? false));
-      applyMenuVisibility(menu, detail.type, detail.isWorkingCopy ?? false);
-      menu.classList.add('visible');
-      menu.style.left = `${detail.x}px`;
-      menu.style.top = `${detail.y}px`;
-    };
-    window.addEventListener('open-jj:context-menu', handler as EventListener);
-    return () => window.removeEventListener('open-jj:context-menu', handler as EventListener);
-  }, []);
-
-  useEffect(() => {
-    const hide = () => {
-      const menu = document.getElementById('context-menu');
-      if (menu) {
-        menu.classList.remove('visible');
-      }
-    };
-    document.addEventListener('click', hide);
-    return () => document.removeEventListener('click', hide);
-  }, []);
-
-  const handleMenuClick = (event: React.MouseEvent) => {
-    const target = event.target as HTMLElement | null;
-    if (!target) return;
-    const menu = target.closest('#context-menu') as HTMLElement | null;
-    const actionEl = target.closest('[data-action]') as HTMLElement | null;
-    if (!menu || !actionEl) return;
-
-    const action = actionEl.dataset.action;
-    const changeId = menu.dataset.changeId;
-    const bookmarkName = menu.dataset.bookmarkName;
-
-    switch (action) {
-      case 'copy-change-id':
-        if (changeId) copyToClipboard(changeId);
-        break;
-      case 'new-change-from':
-        if (changeId) send('newChangeFrom', { changeId });
-        break;
-      case 'describe-change':
-        if (changeId) send('describeChange', { changeId });
-        break;
-      case 'manage-bookmarks':
-        if (changeId) send('manageBookmarks', { changeId });
-        break;
-      case 'edit-change':
-        if (changeId) send('editChange', { changeId });
-        break;
-      case 'squash-change':
-        if (changeId) send('squashChange', { changeId });
-        break;
-      case 'abandon-change':
-        if (changeId) send('abandonChange', { changeId });
-        break;
-      case 'copy-bookmark-name':
-        if (bookmarkName) copyToClipboard(bookmarkName);
-        break;
-      case 'push-bookmark':
-        if (bookmarkName) send('pushBookmark', { bookmarkName });
-        break;
-      case 'push-and-create-pr':
-        if (bookmarkName) send('pushAndCreatePr', { bookmarkName });
-        break;
-      case 'create-pull-request':
-        if (bookmarkName) send('createPullRequest', { bookmarkName });
-        break;
-      case 'delete-bookmark':
-        if (bookmarkName) send('deleteBookmark', { bookmarkName });
-        break;
-      default:
-        break;
-    }
-
-    menu.classList.remove('visible');
-  };
-
-  const handleDragStart = (event: React.DragEvent, payload: { type: string; [key: string]: string }) => {
-    dragDataRef.current = payload;
-    event.dataTransfer.setData('text/plain', JSON.stringify(payload));
-    event.dataTransfer.effectAllowed = 'move';
   };
 
   const handleDrop = (event: React.DragEvent, targetChangeId: string) => {
@@ -1184,14 +1210,12 @@ function App() {
                 isDragDescendant={isDragDescendant}
                 isDragTarget={isDragTarget}
                 dragBranchCount={dragBranchCount}
+                hasDragDataRef={dragDataRef}
                 handleToggle={handleToggle}
-                handleContextMenu={handleContextMenu}
-                handleDragStart={handleDragStart}
                 handleDrop={handleDrop}
                 setDragTargetChangeId={setDragTargetChangeId}
                 activeFile={activeFile}
                 setActiveFile={setActiveFile}
-                showBookmarkMenu={showBookmarkMenu}
                 send={send}
                 state={state}
               />
@@ -1230,28 +1254,6 @@ function App() {
           </div>
         ) : null}
       </DragOverlay>
-      <div
-        id="context-menu"
-        className="context-menu"
-        onClick={handleMenuClick}
-      >
-        <div className="context-menu-item menu-change" data-action="edit-change">Edit Change</div>
-        <div className="context-menu-separator menu-change"></div>
-        <div className="context-menu-item menu-change" data-action="new-change-from">New Change</div>
-        <div className="context-menu-item menu-change" data-action="describe-change">Describe Change</div>
-        <div className="context-menu-item menu-change" data-action="manage-bookmarks">Manage Bookmarks</div>
-        <div className="context-menu-item menu-change" data-action="squash-change">Squash into Parent</div>
-        <div className="context-menu-item menu-change" data-action="copy-change-id">Copy Change ID</div>
-        <div className="context-menu-separator menu-change"></div>
-        <div className="context-menu-item danger menu-change" data-action="abandon-change">Abandon Change</div>
-        <div className="context-menu-item menu-bookmark" data-action="push-bookmark">Push to Remote</div>
-        <div className="context-menu-separator menu-bookmark"></div>
-        <div className="context-menu-item menu-bookmark" data-action="create-pull-request">Create Pull Request</div>
-        <div className="context-menu-item menu-bookmark" data-action="push-and-create-pr">Push and Create PR</div>
-        <div className="context-menu-item menu-bookmark" data-action="copy-bookmark-name">Copy Bookmark Name</div>
-        <div className="context-menu-separator menu-bookmark"></div>
-        <div className="context-menu-item danger menu-bookmark" data-action="delete-bookmark">Delete Bookmark</div>
-      </div>
     </DndContext>
   );
 }
