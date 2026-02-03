@@ -178,14 +178,32 @@ export class JJCli {
    * Get the current working copy status
    */
   async status(): Promise<WorkingCopyStatus> {
-    const [statusResult, logResult] = await Promise.all([
+    const [statusResult, logResult, typesResult] = await Promise.all([
       this.execute(['status']),
       this.execute(['log', '--no-pager', '-r', '@', '--no-graph', '-T', LOG_TEMPLATE]),
+      this.execute(['diff', '--types', '-r', '@']),
     ]);
 
-    const files = this.parseStatusOutput(statusResult.stdout);
+    let files = this.parseStatusOutput(statusResult.stdout);
     const { changes } = parseLogOutput(logResult.stdout);
     const currentChange = changes[0] ?? null;
+
+    // Check for conflicts using --types output (more reliable than status output)
+    if (typesResult.success) {
+      const conflictPaths = this.parseConflictTypes(typesResult.stdout);
+      if (conflictPaths.length > 0) {
+        const filesByPath = new Map(files.map((file) => [file.path, file]));
+        for (const path of conflictPaths) {
+          const existing = filesByPath.get(path);
+          if (existing) {
+            existing.status = 'conflict';
+          } else {
+            filesByPath.set(path, { path, status: 'conflict' });
+          }
+        }
+        files = Array.from(filesByPath.values());
+      }
+    }
 
     return {
       currentChange,

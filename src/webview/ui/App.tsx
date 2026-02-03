@@ -443,7 +443,7 @@ const changeMenuEntries: MenuEntry[] = [
   { type: 'separator', visible: ({ isWorkingCopy }) => !isWorkingCopy },
   { type: 'item', label: 'New Change', action: 'new-change-from' },
   { type: 'item', label: 'Describe Change', action: 'describe-change' },
-  { type: 'item', label: 'Manage Bookmarks', action: 'manage-bookmarks' },
+  { type: 'item', label: 'Create Bookmark', action: 'create-bookmark' },
   { type: 'item', label: 'Squash into Parent', action: 'squash-change' },
   { type: 'item', label: 'Copy Change ID', action: 'copy-change-id' },
   { type: 'separator' },
@@ -635,8 +635,8 @@ function ChangeRow({
       case 'describe-change':
         send('describeChange', { changeId: change.changeId });
         break;
-      case 'manage-bookmarks':
-        send('manageBookmarks', { changeId: change.changeId });
+      case 'create-bookmark':
+        send('createBookmark', { changeId: change.changeId });
         break;
       case 'edit-change':
         send('editChange', { changeId: change.changeId });
@@ -768,22 +768,17 @@ function ChangeRow({
           <ContextMenu.Portal>
             <ContextMenu.Content
               className="context-menu"
-              sideOffset={4}
-              collisionPadding={12}
+              sideOffset={2}
+              collisionPadding={8}
               collisionBoundary={menuBoundary}
               sticky="always"
+              onCloseAutoFocus={(e) => e.preventDefault()}
             >
               <ContextMenuItems entries={changeMenu} onAction={handleChangeMenuAction} />
             </ContextMenu.Content>
           </ContextMenu.Portal>
         </ContextMenu.Root>
-        <span
-          className="bookmarks"
-          onClick={(event) => {
-          event.stopPropagation();
-          send('manageBookmarks', { changeId: change.changeId });
-          }}
-        >
+        <span className="bookmarks" onClick={(e) => e.stopPropagation()}>
           {localBookmarks.map((name) => {
             const isConflicted = name.endsWith('*');
             const cleanName = isConflicted ? name.slice(0, -1) : name;
@@ -825,7 +820,7 @@ function ChangeRow({
             return (
               <ContextMenu.Root key={name}>
                 <ContextMenu.Trigger asChild>
-                  <span className="bookmark-trigger">
+                  <span className="bookmark-trigger" onClick={(e) => e.stopPropagation()}>
                     <BookmarkBadge
                       id={`bookmark:${cleanName}:${change.changeId}`}
                       bookmarkName={cleanName}
@@ -848,10 +843,11 @@ function ChangeRow({
                 <ContextMenu.Portal>
                   <ContextMenu.Content
                     className="context-menu"
-                    sideOffset={4}
-                    collisionPadding={12}
+                    sideOffset={2}
+                    collisionPadding={8}
                     collisionBoundary={menuBoundary}
                     sticky="always"
+                    onCloseAutoFocus={(e) => e.preventDefault()}
                   >
                     <ContextMenuItems
                       entries={normalizedBookmarkMenuEntries}

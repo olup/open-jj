@@ -578,14 +578,16 @@ body {
   cursor: pointer;
   color: var(--vscode-menu-foreground);
   outline: none;
+  user-select: none;
 }
 
 .context-menu-item:hover,
 .context-menu-item:focus,
 .context-menu-item:focus-visible,
 .context-menu-item[data-highlighted] {
-  background: var(--vscode-menu-selectionBackground);
-  color: var(--vscode-menu-selectionForeground);
+  background: var(--vscode-menu-selectionBackground, rgba(255, 255, 255, 0.1));
+  color: var(--vscode-menu-selectionForeground, inherit);
+  cursor: pointer;
 }
 
 .context-menu-item.danger {
