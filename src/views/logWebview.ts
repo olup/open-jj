@@ -376,10 +376,6 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         vscode.commands.executeCommand('open-jj.edit', { change: this._findChange(message.changeId as string) });
         break;
 
-      case 'manageBookmarks':
-        vscode.commands.executeCommand('open-jj.bookmark.manage', { change: this._findChange(message.changeId as string) });
-        break;
-
       case 'describeChange':
         vscode.commands.executeCommand('open-jj.describe', this._findChange(message.changeId as string));
         break;
@@ -434,6 +430,10 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
 
       case 'newChangeFrom':
         vscode.commands.executeCommand('open-jj.new', { revision: message.changeId });
+        break;
+
+      case 'createBookmark':
+        vscode.commands.executeCommand('open-jj.bookmark.create', { change: this._findChange(message.changeId as string) });
         break;
 
       case 'refresh':
@@ -502,7 +502,8 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         const prBookmark = message.bookmarkName as string;
         const remoteUrl = await repo.getRemoteUrl();
         if (remoteUrl) {
-          const githubUrl = this._convertToGitHubPrUrl(remoteUrl, prBookmark);
+          const baseBranch = repo.findBaseBranchForPr(prBookmark) ?? undefined;
+          const githubUrl = this._convertToGitHubPrUrl(remoteUrl, prBookmark, baseBranch);
           if (githubUrl) {
             vscode.env.openExternal(vscode.Uri.parse(githubUrl));
           } else {
@@ -531,7 +532,8 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
           // Now open PR creation page
           const pushPrRemoteUrl = await repo.getRemoteUrl();
           if (pushPrRemoteUrl) {
-            const pushPrGitHubUrl = this._convertToGitHubPrUrl(pushPrRemoteUrl, pushPrBookmark);
+            const pushPrBaseBranch = repo.findBaseBranchForPr(pushPrBookmark) ?? undefined;
+            const pushPrGitHubUrl = this._convertToGitHubPrUrl(pushPrRemoteUrl, pushPrBookmark, pushPrBaseBranch);
             if (pushPrGitHubUrl) {
               vscode.env.openExternal(vscode.Uri.parse(pushPrGitHubUrl));
             } else {
@@ -573,13 +575,16 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     return this._repository?.log.filter(c => c.changeId === changeId || c.changeIdShort === changeId) ?? [];
   }
 
-  private _convertToGitHubPrUrl(remoteUrl: string, branchName: string): string | null {
+  private _convertToGitHubPrUrl(remoteUrl: string, branchName: string, baseBranch?: string): string | null {
     // Convert git remote URL to GitHub PR creation URL
     // Handles: git@github.com:owner/repo.git, https://github.com/owner/repo.git
     let match = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/]+?)(\.git)?$/);
     if (match) {
       const owner = match[1];
       const repo = match[2];
+      if (baseBranch) {
+        return `https://github.com/${owner}/${repo}/compare/${baseBranch}...${branchName}?expand=1`;
+      }
       return `https://github.com/${owner}/${repo}/compare/${branchName}?expand=1`;
     }
     return null;
@@ -853,7 +858,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     if (badges.length === 0) return '';
-    return `<span class="bookmarks" data-action="manage-bookmarks" data-change-id="${changeId}" title="Manage Bookmarks">${badges.join('')}</span>`;
+    return `<span class="bookmarks">${badges.join('')}</span>`;
   }
 
   private _renderFiles(files: FileChange[], revision?: string, changeId?: string, graphInfo?: GraphInfo): string {

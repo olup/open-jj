@@ -550,6 +550,72 @@ export class Repository implements vscode.Disposable {
   }
 
   /**
+   * Find the base branch for a PR by walking ancestors to find the first
+   * bookmark that exists on the remote.
+   */
+  findBaseBranchForPr(bookmarkName: string): string | null {
+    // Build set of bookmark names that exist on remote
+    const remoteBookmarkNames = new Set<string>();
+    for (const b of this._bookmarks) {
+      if (b.isRemote && b.remote !== 'git') {
+        remoteBookmarkNames.add(b.name);
+      }
+    }
+
+    const normalizeBookmarkName = (name: string): string => {
+      const withoutConflict = name.endsWith('*') ? name.slice(0, -1) : name;
+      const atIndex = withoutConflict.indexOf('@');
+      return atIndex === -1 ? withoutConflict : withoutConflict.slice(0, atIndex);
+    };
+
+    // Build commitId -> Change map from full log
+    const changeByCommitId = new Map<string, Change>();
+    for (const change of this._fullLog) {
+      changeByCommitId.set(change.commitId, change);
+    }
+
+    // Find the change that has this bookmark
+    const startChange = this._fullLog.find(c =>
+      c.bookmarks.some(b => normalizeBookmarkName(b) === bookmarkName)
+    );
+    if (!startChange) {
+      return null;
+    }
+
+    // BFS through ancestors (skip the start change itself)
+    const queue = [...startChange.parentIds];
+    const visited = new Set<string>();
+
+    while (queue.length > 0) {
+      const commitId = queue.shift()!;
+      if (visited.has(commitId)) {
+        continue;
+      }
+      visited.add(commitId);
+
+      const change = changeByCommitId.get(commitId);
+      if (!change) {
+        continue;
+      }
+
+      // Check if any bookmark on this ancestor exists on remote
+      for (const bName of change.bookmarks) {
+        const normalized = normalizeBookmarkName(bName);
+        if (normalized && remoteBookmarkNames.has(normalized)) {
+          return normalized;
+        }
+      }
+
+      // Continue to parents
+      for (const parentId of change.parentIds) {
+        queue.push(parentId);
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Get the absolute path for a relative file path
    */
   getAbsolutePath(relativePath: string): string {
