@@ -172,11 +172,14 @@ function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphI
   const nodeX = nodeColumn * colWidth + colWidth / 2;
 
   const lineColor = 'var(--graph-line-color, var(--vscode-descriptionForeground))';
-  const baseNodeStroke = change.isWorkingCopy
-    ? 'var(--vscode-textLink-foreground)'
-    : change.hasConflict
-      ? 'var(--vscode-gitDecoration-conflictingResourceForeground)'
-      : 'var(--vscode-descriptionForeground)';
+  const bothWorkingCopyAndConflict = change.isWorkingCopy && change.hasConflict;
+  const baseNodeStroke = bothWorkingCopyAndConflict
+    ? 'var(--vscode-gitDecoration-conflictingResourceForeground)'
+    : change.isWorkingCopy
+      ? 'var(--vscode-textLink-foreground)'
+      : change.hasConflict
+        ? 'var(--vscode-gitDecoration-conflictingResourceForeground)'
+        : 'var(--vscode-descriptionForeground)';
   const baseNodeFill = change.isWorkingCopy
     ? 'var(--vscode-textLink-foreground)'
     : change.hasConflict
@@ -184,6 +187,7 @@ function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphI
       : 'var(--vscode-editor-background)';
   const nodeStroke = `var(--graph-node-stroke, ${baseNodeStroke})`;
   const nodeFill = `var(--graph-node-fill, ${baseNodeFill})`;
+  const nodeStrokeWidth = bothWorkingCopyAndConflict ? 3 : 1.5;
 
   let svg = `<svg width="${width}" height="${svgHeight}" viewBox="0 0 ${width} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">`;
 
@@ -348,9 +352,9 @@ function renderNodeSvg(change: Change, isFirst: boolean, isLast: boolean, graphI
 
   if (change.isImmutable) {
     const d = Math.max(4, nodeSize + 1);
-    svg += `<polygon points="${nodeX},${cy - d} ${nodeX + d},${cy} ${nodeX},${cy + d} ${nodeX - d},${cy}" fill="${nodeFill}" stroke="${nodeStroke}" stroke-width="1.5"/>`;
+    svg += `<polygon points="${nodeX},${cy - d} ${nodeX + d},${cy} ${nodeX},${cy + d} ${nodeX - d},${cy}" fill="${nodeFill}" stroke="${nodeStroke}" stroke-width="${nodeStrokeWidth}"/>`;
   } else {
-    svg += `<circle cx="${nodeX}" cy="${cy}" r="${nodeSize}" fill="${nodeFill}" stroke="${nodeStroke}" stroke-width="1.5"/>`;
+    svg += `<circle cx="${nodeX}" cy="${cy}" r="${nodeSize}" fill="${nodeFill}" stroke="${nodeStroke}" stroke-width="${nodeStrokeWidth}"/>`;
   }
 
   svg += '</svg>';

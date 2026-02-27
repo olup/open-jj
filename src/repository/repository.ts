@@ -557,7 +557,7 @@ export class Repository implements vscode.Disposable {
     // Build set of bookmark names that exist on remote
     const remoteBookmarkNames = new Set<string>();
     for (const b of this._bookmarks) {
-      if (b.isRemote && b.remote !== 'git') {
+      if ((b.isRemote && b.remote !== 'git') || b.isTracked) {
         remoteBookmarkNames.add(b.name);
       }
     }

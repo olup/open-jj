@@ -599,14 +599,16 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
         return;
       }
 
-      const confirm = await vscode.window.showWarningMessage(
-        `Rebase "${sourceChange.description}" onto "${targetChange.description}"?`,
-        { modal: true },
-        'Rebase'
-      );
+      if (!sourceChange.isEmpty) {
+        const confirm = await vscode.window.showWarningMessage(
+          `Rebase "${sourceChange.description}" onto "${targetChange.description}"?`,
+          { modal: true },
+          'Rebase'
+        );
 
-      if (confirm !== 'Rebase') {
-        return;
+        if (confirm !== 'Rebase') {
+          return;
+        }
       }
 
       const success = await runWithImmutableEscalation(
