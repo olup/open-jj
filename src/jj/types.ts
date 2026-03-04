@@ -108,6 +108,8 @@ export interface PullRequestInfo {
   url: string;
   /** PR title */
   title: string;
+  /** Git commit SHA of the branch HEAD at the time the PR was merged/last updated */
+  headSha?: string;
 }
 
 /** Repository information */

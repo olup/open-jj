@@ -52,6 +52,7 @@ type PullRequestInfo = {
   state: 'none' | 'open' | 'merged' | 'closed' | 'draft';
   url: string;
   title: string;
+  headSha?: string;
 };
 
 type GraphInfo = {
@@ -82,6 +83,7 @@ type WebviewState = {
   prInfo: Record<string, PullRequestInfo>;
   bookmarks: Bookmark[];
   isRefreshing: boolean;
+  protectedBranches: string[];
 };
 
 declare global {
@@ -137,6 +139,7 @@ function getInitialState(): WebviewState {
       prInfo: {},
       bookmarks: [],
       isRefreshing: false,
+      protectedBranches: [],
     }
   );
 }
@@ -796,9 +799,13 @@ function ChangeRow({
             );
             const pr = state.prInfo[cleanName];
 
+            const isProtected = state.protectedBranches.includes(cleanName);
+            const hasNewCommitsSinceMerge = pr?.state === 'merged' && !!pr.headSha && change.commitId !== pr.headSha;
+            const ignorePr = isProtected || hasNewCommitsSinceMerge;
+
             let badgeClass = 'badge local';
-            let tooltip = 'Local bookmark (not pushed)';
-            if (pr) {
+            let tooltip = isProtected ? 'Protected branch' : 'Local bookmark (not pushed)';
+            if (pr && !ignorePr) {
               // Only show "merged" if branch no longer exists on remote (not tracked)
               // If still tracked, the branch is still active despite the merged PR
               if (pr.state === 'merged' && !isTracked && !hasRemote) {
@@ -814,9 +821,11 @@ function ChangeRow({
                 badgeClass = 'badge pr-closed';
                 tooltip = `PR #${pr.number} closed`;
               }
-            } else if (isTracked) {
+            } else if (isTracked || hasRemote || isProtected) {
               badgeClass = 'badge tracked';
-              tooltip = 'Pushed to remote (no PR)';
+              if (!isProtected) {
+                tooltip = 'Pushed to remote (no PR)';
+              }
             }
 
             const isDiverged = isConflicted || bookmarkInfo?.isConflicted;
@@ -831,17 +840,17 @@ function ChangeRow({
                     <BookmarkBadge
                       id={`bookmark:${cleanName}:${change.changeId}`}
                       bookmarkName={cleanName}
-                      className={`${badgeClass}${pr?.url ? ' clickable' : ''}`}
+                      className={`${badgeClass}${pr?.url && !ignorePr ? ' clickable' : ''}`}
                       title={tooltip}
                       onClick={(event) => {
                         event.stopPropagation();
-                        if (pr?.url) {
+                        if (pr?.url && !ignorePr) {
                           send('openUrl', { url: pr.url });
                         }
                       }}
                     >
                       {cleanName}
-                      {pr ? <span className="codicon codicon-git-merge badge-pr-icon" title="Pull request" /> : null}
+                      {pr && !ignorePr ? <span className="codicon codicon-git-merge badge-pr-icon" title="Pull request" /> : null}
                       {isTracked ? <span className="codicon codicon-cloud badge-cloud-icon" title="Synced" /> : null}
                       {isDiverged ? <span className="codicon codicon-cloud badge-cloud-icon diverged" title="Diverged" /> : null}
                     </BookmarkBadge>
@@ -872,9 +881,13 @@ function ChangeRow({
             // Check for PR info using the base bookmark name
             const pr = state.prInfo[localName];
 
+            const isProtected = state.protectedBranches.includes(localName);
+            const hasNewCommitsSinceMerge = pr?.state === 'merged' && !!pr.headSha && change.commitId !== pr.headSha;
+            const ignorePr = isProtected || hasNewCommitsSinceMerge;
+
             let badgeClass = 'badge remote';
-            let tooltip = 'Remote only';
-            if (pr) {
+            let tooltip = isProtected ? 'Protected branch' : 'Remote only';
+            if (pr && !ignorePr) {
               // Remote bookmark exists, so branch is still active - don't show as merged
               if (pr.state === 'merged') {
                 // Keep as remote since the branch still exists
@@ -891,18 +904,18 @@ function ChangeRow({
             return (
               <span
                 key={name}
-                className={`${badgeClass}${pr?.url ? ' clickable' : ''}`}
+                className={`${badgeClass}${pr?.url && !ignorePr ? ' clickable' : ''}`}
                 title={tooltip}
                 onClick={(event) => {
                   event.stopPropagation();
-                  if (pr?.url) {
+                  if (pr?.url && !ignorePr) {
                     send('openUrl', { url: pr.url });
                   }
                 }}
               >
                 {name}
-                {pr ? <span className="codicon codicon-git-merge badge-pr-icon" title="Pull request" /> : null}
-                {!pr ? <span className="codicon codicon-cloud badge-cloud-icon" title="Remote" /> : null}
+                {pr && !ignorePr ? <span className="codicon codicon-git-merge badge-pr-icon" title="Pull request" /> : null}
+                {(!pr || ignorePr) ? <span className="codicon codicon-cloud badge-cloud-icon" title="Remote" /> : null}
               </span>
             );
           })}

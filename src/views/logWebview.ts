@@ -22,6 +22,7 @@ type WebviewState = {
   prInfo: Record<string, PullRequestInfo>;
   bookmarks: Bookmark[];
   isRefreshing: boolean;
+  protectedBranches: string[];
 };
 
 interface ChangeFilesEntry {
@@ -221,6 +222,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         prInfo: {},
         bookmarks: [],
         isRefreshing: false,
+        protectedBranches: [],
       };
     }
 
@@ -256,6 +258,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       prInfo,
       bookmarks: this._repository.bookmarks ?? [],
       isRefreshing: this._repository.isRefreshing,
+      protectedBranches: this._repository.protectedBranches ?? [],
     };
   }
 
@@ -694,7 +697,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
           </span>
           <span class="expand-icon codicon ${hasFiles ? '' : 'hidden'} ${isExpanded ? 'codicon-chevron-down' : 'codicon-chevron-right'}"></span>
           ${descriptionHtml}
-          ${this._renderBookmarks(localBookmarks, remoteBookmarks, change.changeId)}
+          ${this._renderBookmarks(localBookmarks, remoteBookmarks, change.changeId, change.commitId)}
           <span class="change-actions">
             <button class="icon-button small" data-action="new-change-from" data-change-id="${change.changeId}" title="New change from here">
               <span class="codicon codicon-add"></span>
@@ -824,10 +827,11 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     return svg;
   }
 
-  private _renderBookmarks(local: string[], remote: string[], changeId: string): string {
+  private _renderBookmarks(local: string[], remote: string[], changeId: string, commitId: string): string {
     const badges: string[] = [];
     const prInfo = this._repository?.prInfo ?? new Map();
     const allBookmarks = this._repository?.bookmarks ?? [];
+    const protectedBranches = this._repository?.protectedBranches ?? [];
 
     for (const name of local) {
       // Check if bookmark name has asterisk (conflicted) - jj adds this
@@ -837,19 +841,28 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       // Look up full bookmark info from repository
       const bookmarkInfo = allBookmarks.find(b => b.name === cleanName && !b.isRemote);
       const isTracked = bookmarkInfo?.isTracked ?? false;
+      const hasRemote = allBookmarks.some(b => b.isRemote && b.name === cleanName);
 
       // Get PR info for this bookmark
       const pr = prInfo.get(cleanName);
 
-      // Determine badge class based on status
-      // Priority: merged > pr-open > tracked > local
-      let badgeClass = 'badge local';
-      let tooltip = 'Local bookmark (not pushed)';
+      const isProtected = protectedBranches.includes(cleanName);
+      const hasNewCommitsSinceMerge = pr?.state === 'merged' && !!pr.headSha && commitId !== pr.headSha;
+      const ignorePr = isProtected || hasNewCommitsSinceMerge;
 
-      if (pr) {
-        if (pr.state === 'merged') {
+      // Determine badge class based on status
+      let badgeClass = 'badge local';
+      let tooltip = isProtected ? 'Protected branch' : 'Local bookmark (not pushed)';
+      let showPrIcon = false;
+
+      if (pr && !ignorePr) {
+        showPrIcon = true;
+        if (pr.state === 'merged' && !isTracked && !hasRemote) {
           badgeClass = 'badge merged';
           tooltip = `PR #${pr.number} merged`;
+        } else if (pr.state === 'merged' && (isTracked || hasRemote)) {
+          badgeClass = 'badge tracked';
+          tooltip = `PR #${pr.number} merged - branch still active`;
         } else if (pr.state === 'open' || pr.state === 'draft') {
           badgeClass = pr.state === 'draft' ? 'badge pr-draft' : 'badge pr-open';
           tooltip = `PR #${pr.number} ${pr.state}`;
@@ -857,9 +870,11 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
           badgeClass = 'badge pr-closed';
           tooltip = `PR #${pr.number} closed`;
         }
-      } else if (isTracked) {
+      } else if (isTracked || hasRemote || isProtected) {
         badgeClass = 'badge tracked';
-        tooltip = 'Pushed to remote (no PR)';
+        if (!isProtected) {
+          tooltip = 'Pushed to remote (no PR)';
+        }
       }
 
       const isDiverged = isConflicted || bookmarkInfo?.isConflicted;
@@ -875,8 +890,8 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
       const syncedIcon = isTracked
         ? '<span class="codicon codicon-cloud badge-cloud-icon" title="Synced"></span>'
         : '';
-      const prIcon = pr ? '<span class="codicon codicon-git-merge badge-pr-icon" title="Pull request"></span>' : '';
-      const prUrl = pr?.url ? this._escapeHtml(pr.url) : '';
+      const prIcon = showPrIcon ? '<span class="codicon codicon-git-merge badge-pr-icon" title="Pull request"></span>' : '';
+      const prUrl = pr?.url && !ignorePr ? this._escapeHtml(pr.url) : '';
       const clickableClass = prUrl ? ' clickable' : '';
       badges.push(`<span class="${badgeClass}${clickableClass}" draggable="true" data-drag-type="bookmark" data-bookmark-name="${safeName}" data-change-id="${changeId}" data-tracked="${isTracked}" data-pr-url="${prUrl}" title="${tooltip}">${this._escapeHtml(displayName)}${prIcon}${syncedIcon}${conflictIcon}</span>`);
     }
@@ -885,8 +900,31 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
     for (const name of remote) {
       const localName = name.split('@')[0];
       if (!local.includes(localName) && !local.includes(localName + '*')) {
-        const cloudIcon = '<span class="codicon codicon-cloud badge-cloud-icon" title="Remote"></span>';
-        badges.push(`<span class="badge remote" title="Remote only">${this._escapeHtml(name)}${cloudIcon}</span>`);
+        const pr = prInfo.get(localName);
+        const isProtected = protectedBranches.includes(localName);
+        const hasNewCommitsSinceMerge = pr?.state === 'merged' && !!pr.headSha && commitId !== pr.headSha;
+        const ignorePr = isProtected || hasNewCommitsSinceMerge;
+
+        let badgeClass = 'badge remote';
+        let tooltip = isProtected ? 'Protected branch' : 'Remote only';
+        let showPrIcon = false;
+
+        if (pr && !ignorePr) {
+          showPrIcon = true;
+          if (pr.state === 'merged') {
+            tooltip = `PR #${pr.number} merged - branch still active`;
+          } else if (pr.state === 'open' || pr.state === 'draft') {
+            badgeClass = pr.state === 'draft' ? 'badge pr-draft' : 'badge pr-open';
+            tooltip = `PR #${pr.number} ${pr.state}`;
+          } else if (pr.state === 'closed') {
+            badgeClass = 'badge pr-closed';
+            tooltip = `PR #${pr.number} closed`;
+          }
+        }
+
+        const cloudIcon = !showPrIcon ? '<span class="codicon codicon-cloud badge-cloud-icon" title="Remote"></span>' : '';
+        const prIcon = showPrIcon ? '<span class="codicon codicon-git-merge badge-pr-icon" title="Pull request"></span>' : '';
+        badges.push(`<span class="${badgeClass}" title="${tooltip}">${this._escapeHtml(name)}${prIcon}${cloudIcon}</span>`);
       }
     }
 

@@ -33,6 +33,7 @@ export class Repository implements vscode.Disposable {
   private _fullLog: Change[] = [];
   private _bookmarks: Bookmark[] = [];
   private _prInfo: Map<string, PullRequestInfo> = new Map();
+  private _protectedBranches: string[] = [];
 
   get isRefreshing(): boolean {
     return this._refreshInFlight || this._refreshQueued || this._refreshTimer !== null;
@@ -107,6 +108,10 @@ export class Repository implements vscode.Disposable {
 
   get prInfo(): Map<string, PullRequestInfo> {
     return this._prInfo;
+  }
+
+  get protectedBranches(): string[] {
+    return this._protectedBranches;
   }
 
   get isGitHub(): boolean {
@@ -303,14 +308,22 @@ export class Repository implements vscode.Disposable {
     }
 
     try {
-      const prInfoMap = await this._githubService.getPullRequestsForBranches(
-        this._githubInfo.owner,
-        this._githubInfo.repo,
-        trackedBookmarks
-      );
+      const [prInfoMap, protectedBranches] = await Promise.all([
+        this._githubService.getPullRequestsForBranches(
+          this._githubInfo.owner,
+          this._githubInfo.repo,
+          trackedBookmarks
+        ),
+        this._githubService.getProtectedBranches(
+          this._githubInfo.owner,
+          this._githubInfo.repo
+        ),
+      ]);
 
       console.log('[open-jj] PR info fetched:', prInfoMap.size, 'PRs found');
+      console.log('[open-jj] Protected branches:', protectedBranches);
       this._prInfo = prInfoMap;
+      this._protectedBranches = protectedBranches;
       // Fire change event to update UI with PR info
       this._onDidChange.fire();
     } catch (error) {

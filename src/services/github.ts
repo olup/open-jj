@@ -10,6 +10,7 @@ interface GitHubPullRequest {
   title: string;
   head: {
     ref: string;
+    sha: string;
   };
 }
 
@@ -122,7 +123,8 @@ export class GitHubService {
         number: pr.number,
         state,
         url: pr.html_url,
-        title: pr.title
+        title: pr.title,
+        headSha: pr.head.sha
       };
 
       this._prCache.set(cacheKey, info);
@@ -204,7 +206,8 @@ export class GitHubService {
             number: pr.number,
             state,
             url: pr.html_url,
-            title: pr.title
+            title: pr.title,
+            headSha: pr.head.sha
           });
         }
       }
@@ -221,6 +224,38 @@ export class GitHubService {
     } catch (error) {
       console.error('[open-jj] Error fetching PRs:', error);
       return result;
+    }
+  }
+
+  /**
+   * Get list of protected branch names for a repository
+   */
+  async getProtectedBranches(owner: string, repo: string): Promise<string[]> {
+    const session = await this.getSession();
+    if (!session) {
+      return [];
+    }
+
+    try {
+      const response = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/branches?protected=true&per_page=100`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.accessToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'open-jj-vscode'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const branches = await response.json() as { name: string }[];
+      return branches.map(b => b.name);
+    } catch {
+      return [];
     }
   }
 
