@@ -562,6 +562,7 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         const repoName = path.basename(repo.rootPath);
         const workspaceDir = path.join(os.tmpdir(), 'jj-workspaces', `${repoName}-${change.changeIdShort}`);
         if (!fs.existsSync(workspaceDir)) {
+          fs.mkdirSync(path.dirname(workspaceDir), { recursive: true });
           const result = await repo.addWorkspace(workspaceDir, change.changeIdShort);
           if (!result.success) {
             vscode.window.showErrorMessage(`Failed to create workspace: ${result.stderr?.trim()}`);
