@@ -450,6 +450,7 @@ const changeMenuEntries: MenuEntry[] = [
   { type: 'item', label: 'Create Bookmark', action: 'create-bookmark' },
   { type: 'item', label: 'Squash into Parent', action: 'squash-change' },
   { type: 'item', label: 'Copy Change ID', action: 'copy-change-id' },
+  { type: 'item', label: 'Open in New Workspace Window', action: 'open-in-new-window' },
   { type: 'separator' },
   { type: 'item', label: 'Abandon Change', action: 'abandon-change', danger: true },
 ];
@@ -651,6 +652,9 @@ function ChangeRow({
       case 'abandon-change':
         send('abandonChange', { changeId: change.changeId });
         break;
+      case 'open-in-new-window':
+        send('openInNewWindow', { changeId: change.changeId });
+        break;
       default:
         break;
     }
@@ -772,7 +776,6 @@ function ChangeRow({
           <ContextMenu.Portal>
             <ContextMenu.Content
               className="context-menu"
-              sideOffset={2}
               collisionPadding={8}
               collisionBoundary={menuBoundary}
               sticky="always"
@@ -847,7 +850,6 @@ function ChangeRow({
                 <ContextMenu.Portal>
                   <ContextMenu.Content
                     className="context-menu"
-                    sideOffset={2}
                     collisionPadding={8}
                     collisionBoundary={menuBoundary}
                     sticky="always"

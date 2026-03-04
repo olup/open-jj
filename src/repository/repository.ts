@@ -396,6 +396,13 @@ export class Repository implements vscode.Disposable {
   }
 
   /**
+   * Add a new jj workspace at the given path rooted at the given revision
+   */
+  async addWorkspace(destPath: string, revision: string): Promise<CommandResult> {
+    return this.cli.workspaceAdd(destPath, revision);
+  }
+
+  /**
    * Rebase a change onto a new parent
    */
   async rebase(revision: string, destination: string, options?: { ignoreImmutable?: boolean }): Promise<boolean> {

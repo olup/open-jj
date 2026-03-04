@@ -359,6 +359,13 @@ export class JJCli {
   }
 
   /**
+   * Add a new jj workspace at the given path, rooted at the given revision
+   */
+  async workspaceAdd(destPath: string, revision: string): Promise<CommandResult> {
+    return this.execute(['workspace', 'add', '--revision', revision, destPath]);
+  }
+
+  /**
    * Move/squash specific files from one change to another
    */
   async moveFiles(fromRevision: string, toRevision: string, paths: string[], options?: { ignoreImmutable?: boolean }): Promise<CommandResult> {

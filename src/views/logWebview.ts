@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
 import { Repository } from '../repository/repository';
 import { Change, Bookmark, FileChange, PullRequestInfo, PullRequestState, LogRow } from '../jj/types';
 import { GraphInfo, computeDistantParents, computeGraph } from './graphLayout';
@@ -552,6 +555,35 @@ export class LogWebviewProvider implements vscode.WebviewViewProvider {
         const urlToOpen = message.url as string;
         vscode.env.openExternal(vscode.Uri.parse(urlToOpen));
         break;
+
+      case 'openInNewWindow': {
+        const change = this._findChange(message.changeId as string);
+        if (!change) break;
+        const repoName = path.basename(repo.rootPath);
+        const workspaceDir = path.join(os.tmpdir(), 'jj-workspaces', `${repoName}-${change.changeIdShort}`);
+        if (!fs.existsSync(workspaceDir)) {
+          const result = await repo.addWorkspace(workspaceDir, change.changeIdShort);
+          if (!result.success) {
+            vscode.window.showErrorMessage(`Failed to create workspace: ${result.stderr?.trim()}`);
+            break;
+          }
+        }
+        const vscodeSettingsDir = path.join(workspaceDir, '.vscode');
+        const vscodeSettingsPath = path.join(vscodeSettingsDir, 'settings.json');
+        if (!fs.existsSync(vscodeSettingsPath)) {
+          fs.mkdirSync(vscodeSettingsDir, { recursive: true });
+          fs.writeFileSync(vscodeSettingsPath, JSON.stringify({
+            'window.title': '[jj workspace] ${activeEditorShort}${separator}${rootName}',
+            'workbench.colorCustomizations': {
+              'titleBar.activeBackground': '#6b21a8',
+              'titleBar.activeForeground': '#ffffff',
+              'titleBar.inactiveBackground': '#4a1772',
+            },
+          }, null, 2));
+        }
+        vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspaceDir), { forceNewWindow: true });
+        break;
+      }
     }
     } catch (error) {
       vscode.window.showErrorMessage(`Error: ${error}`);
