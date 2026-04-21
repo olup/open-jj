@@ -79,6 +79,18 @@ export interface WorkingCopyStatus {
   hasConflicts: boolean;
 }
 
+/** A jj workspace */
+export interface Workspace {
+  /** Workspace name (e.g. "default" or the workspace directory name) */
+  name: string;
+  /** Short change ID of the workspace's working-copy commit */
+  changeIdShort: string;
+  /** Whether this is the default workspace (the primary working copy) */
+  isDefault: boolean;
+  /** Whether this is the current workspace (the one this session is operating in) */
+  isCurrent: boolean;
+}
+
 /** A jj bookmark */
 export interface Bookmark {
   /** Bookmark name */

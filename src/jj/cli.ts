@@ -5,6 +5,7 @@ import {
   FileChange,
   FileStatus,
   Bookmark,
+  Workspace,
   WorkingCopyStatus,
   LogRow,
   CommandResult,
@@ -363,6 +364,38 @@ export class JJCli {
    */
   async workspaceAdd(destPath: string, revision: string): Promise<CommandResult> {
     return this.execute(['workspace', 'add', '--revision', revision, destPath]);
+  }
+
+  /**
+   * List all workspaces attached to the repo
+   */
+  async workspaceList(): Promise<Workspace[]> {
+    const template =
+      'name ++ "\\x00" ++ target.change_id().short() ++ "\\x00" ++ if(target.current_working_copy(), "1", "0") ++ "\\n"';
+    const result = await this.execute(['workspace', 'list', '-T', template]);
+    if (!result.success) {
+      return [];
+    }
+    const workspaces: Workspace[] = [];
+    for (const line of result.stdout.split('\n')) {
+      if (!line) continue;
+      const [name, changeIdShort, isCurrent] = line.split('\x00');
+      if (!name) continue;
+      workspaces.push({
+        name,
+        changeIdShort: changeIdShort ?? '',
+        isDefault: name === 'default',
+        isCurrent: isCurrent === '1',
+      });
+    }
+    return workspaces;
+  }
+
+  /**
+   * Forget (stop tracking) a workspace by name
+   */
+  async workspaceForget(name: string): Promise<CommandResult> {
+    return this.execute(['workspace', 'forget', name]);
   }
 
   /**

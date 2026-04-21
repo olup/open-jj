@@ -2,7 +2,7 @@
   "name": "open-jj",
   "displayName": "OPEN JJ",
   "description": "Jujutsu (jj) version control integration for VS Code",
-  "version": "0.0.15",
+  "version": "0.0.16",
   "publisher": "olup",
   "license": "MIT",
   "engines": {
@@ -133,6 +133,18 @@
         "command": "open-jj.moveFile",
         "title": "Move File to Change",
         "category": "JJ"
+      },
+      {
+        "command": "open-jj.workspace.forget",
+        "title": "Forget Workspace",
+        "category": "JJ",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "open-jj.workspace.reopen",
+        "title": "Open Workspace Window",
+        "category": "JJ",
+        "icon": "$(link-external)"
       }
     ],
     "menus": {
@@ -157,6 +169,24 @@
         {
           "command": "open-jj.bookmark.delete",
           "when": "view == open-jj.bookmarks && viewItem == bookmark"
+        },
+        {
+          "command": "open-jj.workspace.reopen",
+          "when": "view == open-jj.workspaces && viewItem =~ /canReopen/",
+          "group": "inline@1"
+        },
+        {
+          "command": "open-jj.workspace.forget",
+          "when": "view == open-jj.workspaces && viewItem =~ /canForget/",
+          "group": "inline@2"
+        },
+        {
+          "command": "open-jj.workspace.reopen",
+          "when": "view == open-jj.workspaces && viewItem =~ /canReopen/"
+        },
+        {
+          "command": "open-jj.workspace.forget",
+          "when": "view == open-jj.workspaces && viewItem =~ /canForget/"
         }
       ],
       "scm/title": [
@@ -203,6 +233,11 @@
         {
           "id": "open-jj.bookmarks",
           "name": "JJ Bookmarks",
+          "when": "open-jj.hasRepository"
+        },
+        {
+          "id": "open-jj.workspaces",
+          "name": "JJ Workspaces",
           "when": "open-jj.hasRepository"
         }
       ]

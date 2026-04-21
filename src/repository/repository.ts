@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { JJCli } from '../jj/cli';
-import { Change, Bookmark, WorkingCopyStatus, FileChange, PullRequestInfo, LogRow, CommandResult } from '../jj/types';
+import { Change, Bookmark, Workspace, WorkingCopyStatus, FileChange, PullRequestInfo, LogRow, CommandResult } from '../jj/types';
 import { detectRepositories, DetectionResult } from './detection';
 import { GitHubService } from '../services/github';
 
@@ -32,6 +32,7 @@ export class Repository implements vscode.Disposable {
   private _logRows: LogRow[] = [];
   private _fullLog: Change[] = [];
   private _bookmarks: Bookmark[] = [];
+  private _workspaces: Workspace[] = [];
   private _prInfo: Map<string, PullRequestInfo> = new Map();
   private _protectedBranches: string[] = [];
 
@@ -96,6 +97,10 @@ export class Repository implements vscode.Disposable {
 
   get bookmarks(): Bookmark[] {
     return this._bookmarks;
+  }
+
+  get workspaces(): Workspace[] {
+    return this._workspaces;
   }
 
   get currentChange(): Change | null {
@@ -243,11 +248,12 @@ export class Repository implements vscode.Disposable {
     const logRevset = '::';
     const effectiveLimit = logLimit && logLimit > 0 ? logLimit : undefined;
 
-    const [status, logResult, fullLogResult, bookmarks] = await Promise.all([
+    const [status, logResult, fullLogResult, bookmarks, workspaces] = await Promise.all([
       this.cli.status(),
       this.cli.log(logRevset, effectiveLimit),
       this.cli.log('::'),
       this.cli.bookmarkList(),
+      this.cli.workspaceList(),
     ]);
 
     this._status = status;
@@ -255,6 +261,7 @@ export class Repository implements vscode.Disposable {
     this._logRows = logResult.rows;
     this._fullLog = fullLogResult.changes;
     this._bookmarks = bookmarks;
+    this._workspaces = workspaces;
 
     if (options?.refreshPrInfo) {
       // Fetch PR info for tracked bookmarks (non-blocking)
@@ -413,6 +420,17 @@ export class Repository implements vscode.Disposable {
    */
   async addWorkspace(destPath: string, revision: string): Promise<CommandResult> {
     return this.cli.workspaceAdd(destPath, revision);
+  }
+
+  /**
+   * Forget (stop tracking) a workspace and its working-copy commit
+   */
+  async forgetWorkspace(name: string): Promise<CommandResult> {
+    const result = await this.cli.workspaceForget(name);
+    if (result.success) {
+      await this.refresh();
+    }
+    return result;
   }
 
   /**

@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { detectRepositories, hasJJRepository, hasGitRepository } from './repository/detection';
 import { Repository, createRepository } from './repository/repository';
 import { JJSourceControl, JJOriginalContentProvider } from './views/sourceControl';
 import { BookmarksTreeProvider } from './views/logTree';
+import { WorkspacesTreeProvider, getExtensionWorkspacePath } from './views/workspacesTree';
 import { LogWebviewProvider } from './views/logWebview';
 import { StatusBar } from './ui/statusBar';
 import { registerInitCommand, registerInitWithGitCommand } from './commands/init';
@@ -13,6 +15,7 @@ let sourceControl: JJSourceControl | null = null;
 let statusBar: StatusBar | null = null;
 let logWebviewProvider: LogWebviewProvider | null = null;
 let bookmarksTreeProvider: BookmarksTreeProvider | null = null;
+let workspacesTreeProvider: WorkspacesTreeProvider | null = null;
 let originalContentProvider: JJOriginalContentProvider | null = null;
 let lastFocusFetchAt = 0;
 
@@ -23,10 +26,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   statusBar = new StatusBar();
   logWebviewProvider = new LogWebviewProvider(context.extensionUri);
   bookmarksTreeProvider = new BookmarksTreeProvider();
+  workspacesTreeProvider = new WorkspacesTreeProvider();
   originalContentProvider = new JJOriginalContentProvider();
 
   context.subscriptions.push(statusBar);
   context.subscriptions.push(bookmarksTreeProvider);
+  context.subscriptions.push(workspacesTreeProvider);
 
   // Register webview provider for log
   context.subscriptions.push(
@@ -38,6 +43,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     treeDataProvider: bookmarksTreeProvider,
   });
   context.subscriptions.push(bookmarksTreeView);
+
+  // Register tree view for workspaces
+  const workspacesTreeView = vscode.window.createTreeView('open-jj.workspaces', {
+    treeDataProvider: workspacesTreeProvider,
+  });
+  context.subscriptions.push(workspacesTreeView);
 
   // Register content provider for diff view
   context.subscriptions.push(
@@ -128,6 +139,7 @@ async function initializeRepository(context: vscode.ExtensionContext): Promise<v
   statusBar?.setRepository(repository);
   logWebviewProvider?.setRepository(repository);
   bookmarksTreeProvider?.setRepository(repository);
+  workspacesTreeProvider?.setRepository(repository);
   originalContentProvider?.setRepository(repository);
 
   // Set context for menu visibility
@@ -143,6 +155,7 @@ function setNoRepository(): void {
   statusBar?.setRepository(null);
   logWebviewProvider?.setRepository(null);
   bookmarksTreeProvider?.setRepository(null);
+  workspacesTreeProvider?.setRepository(null);
   vscode.commands.executeCommand('setContext', 'open-jj.hasRepository', false);
   vscode.commands.executeCommand('setContext', 'open-jj.isRefreshing', false);
 }
@@ -665,6 +678,94 @@ function registerCoreCommands(context: vscode.ExtensionContext): void {
       } else {
         vscode.window.showErrorMessage('Failed to move file');
       }
+    })
+  );
+
+  // Forget workspace (remove from tracked workspaces, optionally delete folder)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('open-jj.workspace.forget', async (item?: { workspace?: { name: string; isCurrent: boolean } }) => {
+      if (!repository) {
+        return;
+      }
+      const repo = repository;
+
+      const ws = item?.workspace;
+      if (!ws) {
+        return;
+      }
+      if (ws.isCurrent) {
+        vscode.window.showErrorMessage(
+          `Cannot forget "${ws.name}" — it's the workspace this session is using. Switch to the main window first.`
+        );
+        return;
+      }
+
+      const dirPath = getExtensionWorkspacePath(repo.rootPath, ws.name);
+      const dirExists = dirPath ? (() => { try { return fs.existsSync(dirPath); } catch { return false; } })() : false;
+
+      const deleteLabel = 'Forget and delete folder';
+      const keepLabel = 'Forget (keep folder)';
+      const options = dirExists ? [deleteLabel, keepLabel] : ['Forget'];
+      const picked = await vscode.window.showWarningMessage(
+        `Forget workspace "${ws.name}"? This removes its working-copy commit from the log.`,
+        { modal: true },
+        ...options
+      );
+      if (!picked) {
+        return;
+      }
+
+      const result = await repo.forgetWorkspace(ws.name);
+      if (!result.success) {
+        vscode.window.showErrorMessage(
+          `Failed to forget workspace: ${result.stderr?.trim() || 'unknown error'}`
+        );
+        return;
+      }
+
+      if (picked === deleteLabel && dirPath) {
+        try {
+          fs.rmSync(dirPath, { recursive: true, force: true });
+        } catch (err) {
+          vscode.window.showWarningMessage(
+            `Forgot workspace, but failed to delete folder: ${err}`
+          );
+          return;
+        }
+      }
+
+      vscode.window.showInformationMessage(`Forgot workspace "${ws.name}"`);
+    })
+  );
+
+  // Reopen workspace window (only for extension-created workspaces still on disk)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('open-jj.workspace.reopen', async (item?: { workspace?: { name: string } }) => {
+      if (!repository) {
+        return;
+      }
+
+      const ws = item?.workspace;
+      if (!ws) {
+        return;
+      }
+
+      const dirPath = getExtensionWorkspacePath(repository.rootPath, ws.name);
+      if (!dirPath) {
+        vscode.window.showErrorMessage(
+          `Workspace "${ws.name}" wasn't created by this extension, so its folder location is unknown.`
+        );
+        return;
+      }
+
+      let exists = false;
+      try { exists = fs.existsSync(dirPath); } catch { exists = false; }
+      if (!exists) {
+        vscode.window.showErrorMessage(`Workspace folder no longer exists: ${dirPath}`);
+        return;
+      }
+
+      vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(dirPath), { forceNewWindow: true });
     })
   );
 
