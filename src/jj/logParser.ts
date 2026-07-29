@@ -16,7 +16,7 @@ export function parseLogOutput(output: string, workingCopyId?: string): { change
       dataLine = line.slice(markerIndex + 1);
 
       const parts = dataLine.split('\x00');
-      if (parts.length < 19) {
+      if (parts.length < 18) {
         console.log('[open-jj] skipping line, not enough parts:', parts.length);
         continue;
       }
@@ -40,7 +40,6 @@ export function parseLogOutput(output: string, workingCopyId?: string): { change
         parentIdsStr,
         bookmarksStr,
         tagsStr,
-        gitRefsStr,
       ] = parts;
 
       const isWorkingCopy = workingCopyId ? changeId === workingCopyId : false;
@@ -64,7 +63,6 @@ export function parseLogOutput(output: string, workingCopyId?: string): { change
         parentIds: parentIdsStr ? parentIdsStr.split(',') : [],
         bookmarks: bookmarksStr ? bookmarksStr.split(',') : [],
         tags: tagsStr ? tagsStr.split(',') : [],
-        gitRefs: gitRefsStr ? gitRefsStr.split(',') : [],
       };
 
       changes.push(change);

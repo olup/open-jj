@@ -35,7 +35,6 @@ type Change = {
   parentIds: string[];
   bookmarks: string[];
   tags: string[];
-  gitRefs: string[];
 };
 
 type Bookmark = {

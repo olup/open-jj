@@ -14,19 +14,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - name: Install deps
         run: pnpm install --frozen-lockfile
+
+      - name: Install Jujutsu
+        uses: taiki-e/install-action@v2
+        with:
+          tool: jj-cli@0.43.0
 
       - name: Build
         run: pnpm run compile
@@ -37,13 +42,8 @@ jobs:
       - name: Package extension
         run: npx @vscode/vsce package --no-dependencies
 
-      - name: Publish to Marketplace
-        if: ${{ secrets.VSCE_PAT != '' }}
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx @vscode/vsce publish --no-dependencies
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: "*.vsix"
+          generate_release_notes: true

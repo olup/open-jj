@@ -25,7 +25,6 @@ function baseFields(overrides?: Partial<Record<number, string>>): string[] {
     '',
     '',
     '',
-    '',
   ];
   if (!overrides) return defaults;
   return defaults.map((value, index) => overrides[index] ?? value);

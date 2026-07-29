@@ -40,8 +40,6 @@ export interface Change {
   bookmarks: string[];
   /** Tags on this change */
   tags: string[];
-  /** Git refs (branches, HEAD) */
-  gitRefs: string[];
 }
 
 /** A row in jj log output, which may or may not be a change */

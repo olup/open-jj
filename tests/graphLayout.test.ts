@@ -22,7 +22,6 @@ function makeChange(id: string, commitId: string, parentIds: string[] = []): Cha
     parentIds,
     bookmarks: [],
     tags: [],
-    gitRefs: [],
   };
 }
 
